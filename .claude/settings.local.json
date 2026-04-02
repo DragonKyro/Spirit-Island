@@ -10,7 +10,10 @@
       "Bash(python -c \"import arcade; print\\(arcade.VERSION\\)\")",
       "Bash(python -c \"import pytest; print\\(pytest.__version__\\)\")",
       "Bash(python -c \"import arcade.gui; help\\(arcade.gui.UIFlatButton.UIStyle\\)\")",
-      "Bash(python -c ':*)"
+      "Bash(python -c ':*)",
+      "WebFetch(domain:spiritislandwiki.com)",
+      "Bash(pip list:*)",
+      "Bash(pip install:*)"
     ]
   }
 }

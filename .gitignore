@@ -33,3 +33,7 @@ htmlcov/
 
 # Save files (keep folder via .gitkeep)
 saves/*.json
+
+# Webscrape cache/output
+webscrape/output/
+webscrape/*.html
