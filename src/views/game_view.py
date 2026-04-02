@@ -50,6 +50,11 @@ TERRAIN_COLORS = {
 LOG_AREA_WIDTH = 440
 BOARD_AREA_WIDTH = WINDOW_WIDTH - LOG_AREA_WIDTH
 
+# Board layout constants
+BOARD_MARGIN = 15
+LAND_H = 150
+LAND_W = (BOARD_AREA_WIDTH - BOARD_MARGIN * 3) // 4
+
 # Piece colors matching the SVG assets
 PIECE_COLORS = {
     "explorer": (204, 68, 68, 255),
@@ -65,31 +70,34 @@ PIECE_SIZE = 14
 def _create_piece_textures() -> dict[str, arcade.Texture]:
     """Create small textures for each piece type."""
     textures = {}
-    # Explorers: small circle
     textures["explorer"] = arcade.make_circle_texture(
         PIECE_SIZE, PIECE_COLORS["explorer"]
     )
-    # Towns: square
     textures["town"] = arcade.make_soft_square_texture(
         PIECE_SIZE, PIECE_COLORS["town"], 255, 255
     )
-    # Cities: larger square
     textures["city"] = arcade.make_soft_square_texture(
         PIECE_SIZE + 4, PIECE_COLORS["city"], 255, 255
     )
-    # Dahan: circle (gold)
     textures["dahan"] = arcade.make_circle_texture(
         PIECE_SIZE, PIECE_COLORS["dahan"]
     )
-    # Blight: circle (brown)
     textures["blight"] = arcade.make_circle_texture(
         PIECE_SIZE, PIECE_COLORS["blight"]
     )
-    # Presence: soft circle (blue glow)
     textures["presence"] = arcade.make_soft_circle_texture(
         PIECE_SIZE, PIECE_COLORS["presence"]
     )
     return textures
+
+
+def _land_center(i: int) -> tuple[float, float]:
+    """Return the (x, y) center of the i-th land tile."""
+    col = i % 4
+    row = i // 4
+    x = BOARD_MARGIN + col * (LAND_W + BOARD_MARGIN // 2) + LAND_W // 2
+    y = (WINDOW_HEIGHT - 50) - row * (LAND_H + BOARD_MARGIN) - LAND_H // 2
+    return x, y
 
 
 class GameView(arcade.View):
@@ -123,26 +131,37 @@ class GameView(arcade.View):
         # Piece textures
         self.piece_textures = _create_piece_textures()
 
-        # Static text objects
+        # Pre-created Text objects (populated in _build_text_objects)
         self.title_text: arcade.Text | None = None
-        self.status_texts: list[arcade.Text] = []
+
+        # Board land labels: [i] -> (name_text, terrain_text)
+        self.land_name_texts: list[arcade.Text] = []
+        self.land_terrain_texts: list[arcade.Text] = []
+
+        # Legend labels
+        self.legend_texts: list[arcade.Text] = []
+
+        # Info panel texts (spirit lines + invader/fear/blight)
+        self.spirit_info_texts: list[arcade.Text] = []
+        self.invader_info_text: arcade.Text | None = None
+        self.fear_info_text: arcade.Text | None = None
+        self.blight_info_text: arcade.Text | None = None
+
+        # Event log texts
+        self.log_header_text: arcade.Text | None = None
+        self.log_line_texts: list[arcade.Text] = []
+        self.log_scroll_text: arcade.Text | None = None
 
     def on_show_view(self):
         self.ui.enable()
         self._build_ui()
+        self._build_text_objects()
 
     def on_hide_view(self):
         self.ui.disable()
 
     def _build_ui(self):
         self.ui.clear()
-
-        self.title_text = arcade.Text(
-            f"Spirit Island - Turn {self.game_state.turn_number + 1}",
-            x=BOARD_AREA_WIDTH / 2, y=WINDOW_HEIGHT - 20,
-            color=COLOR_TITLE, font_size=18,
-            anchor_x="center", anchor_y="center", bold=True,
-        )
 
         # Control buttons at the bottom
         btn_layout = arcade.gui.UIBoxLayout(vertical=False, space_between=10)
@@ -181,6 +200,100 @@ class GameView(arcade.View):
         anchor = self.ui.add(arcade.gui.UIAnchorLayout())
         anchor.add(btn_layout, anchor_x="left", anchor_y="bottom",
                    align_x=20, align_y=10)
+
+    def _build_text_objects(self):
+        """Pre-create all arcade.Text objects used in rendering."""
+
+        # Title
+        self.title_text = arcade.Text(
+            f"Spirit Island - Turn {self.game_state.turn_number + 1}",
+            x=BOARD_AREA_WIDTH / 2, y=WINDOW_HEIGHT - 20,
+            color=COLOR_TITLE, font_size=18,
+            anchor_x="center", anchor_y="center", bold=True,
+        )
+
+        # Board land labels (static positions, static text)
+        self.land_name_texts = []
+        self.land_terrain_texts = []
+        for i, land in enumerate(self.game_state.lands):
+            cx, cy = _land_center(i)
+            terrain_name = land.terrain.name
+            self.land_name_texts.append(arcade.Text(
+                f"Land {land.number}",
+                x=cx, y=cy + LAND_H // 2 - 15,
+                color=(255, 255, 255, 255), font_size=13,
+                anchor_x="center", bold=True,
+            ))
+            self.land_terrain_texts.append(arcade.Text(
+                terrain_name.title() + (" (Coastal)" if land.is_coastal else " (Inland)"),
+                x=cx, y=cy + LAND_H // 2 - 32,
+                color=(220, 220, 220, 200), font_size=9,
+                anchor_x="center",
+            ))
+
+        # Legend labels (static)
+        self.legend_texts = []
+        lx = 15
+        ly = WINDOW_HEIGHT - 375
+        legend_items = [
+            ("city", "City"), ("town", "Town"), ("explorer", "Explorer"),
+            ("dahan", "Dahan"), ("blight", "Blight"), ("presence", "Presence"),
+        ]
+        for _, label in legend_items:
+            self.legend_texts.append(arcade.Text(
+                label, x=lx + PIECE_SIZE // 2 + 6, y=ly - 5,
+                color=(180, 180, 170, 255), font_size=9,
+            ))
+            lx += len(label) * 7 + PIECE_SIZE + 15
+
+        # Spirit info lines (one per spirit, max 4)
+        info_y = WINDOW_HEIGHT - 400
+        self.spirit_info_texts = []
+        for _ in range(4):
+            self.spirit_info_texts.append(arcade.Text(
+                "", x=15, y=info_y,
+                color=(180, 200, 160, 255), font_size=11,
+            ))
+            info_y -= 20
+
+        # Invader / fear / blight info
+        self.invader_info_text = arcade.Text(
+            "", x=15, y=info_y - 5,
+            color=(200, 160, 140, 255), font_size=11,
+        )
+        self.fear_info_text = arcade.Text(
+            "", x=15, y=info_y - 25,
+            color=(170, 140, 180, 255), font_size=11,
+        )
+        self.blight_info_text = arcade.Text(
+            "", x=15, y=info_y - 45,
+            color=(180, 150, 120, 255), font_size=11,
+        )
+
+        # Event log
+        log_x = BOARD_AREA_WIDTH + 5
+        self.log_header_text = arcade.Text(
+            "Event Log",
+            x=log_x + LOG_AREA_WIDTH // 2, y=WINDOW_HEIGHT - 15,
+            color=COLOR_TITLE, font_size=14,
+            anchor_x="center", bold=True,
+        )
+
+        self.log_line_texts = []
+        log_y = WINDOW_HEIGHT - 38
+        for _ in range(self.max_visible_log_lines):
+            self.log_line_texts.append(arcade.Text(
+                "", x=log_x + 5, y=log_y,
+                color=(160, 160, 150, 255), font_size=9,
+            ))
+            log_y -= 16
+
+        self.log_scroll_text = arcade.Text(
+            "", x=log_x + 5, y=10,
+            color=(100, 100, 100, 255), font_size=8,
+        )
+
+    # ─── Button handlers ─────────────────────────────────────────────────
 
     def _on_next_phase(self, _event):
         if self.game_state.result == GameResult.IN_PROGRESS:
@@ -227,12 +340,13 @@ class GameView(arcade.View):
             self.log_scroll_offset = total - self.max_visible_log_lines
 
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
-        # Scroll event log if mouse is over the log area
         if x >= BOARD_AREA_WIDTH:
             self.log_scroll_offset -= int(scroll_y * 3)
             total = len(self.game_state.event_log)
             max_offset = max(0, total - self.max_visible_log_lines)
             self.log_scroll_offset = max(0, min(self.log_scroll_offset, max_offset))
+
+    # ─── Drawing ─────────────────────────────────────────────────────────
 
     def on_draw(self):
         self.clear()
@@ -254,47 +368,26 @@ class GameView(arcade.View):
         self.ui.draw()
 
     def _draw_board(self):
-        """Draw the 8 lands as colored rectangles in a grid."""
-        margin = 15
-        start_x = margin
-        start_y = WINDOW_HEIGHT - 50
-        land_w = (BOARD_AREA_WIDTH - margin * 3) // 4
-        land_h = 150
-
+        """Draw the 8 lands as colored rectangles with piece sprites."""
         for i, land in enumerate(self.game_state.lands):
-            col = i % 4
-            row = i // 4
-            x = start_x + col * (land_w + margin // 2) + land_w // 2
-            y = start_y - row * (land_h + margin) - land_h // 2
-
+            cx, cy = _land_center(i)
             terrain_name = land.terrain.name
             color = TERRAIN_COLORS.get(terrain_name, (80, 80, 80, 255))
 
             # Land background
             arcade.draw_rect_filled(
-                arcade.rect.XYWH(x, y, land_w, land_h), color=color,
+                arcade.rect.XYWH(cx, cy, LAND_W, LAND_H), color=color,
             )
             arcade.draw_rect_outline(
-                arcade.rect.XYWH(x, y, land_w, land_h),
+                arcade.rect.XYWH(cx, cy, LAND_W, LAND_H),
                 color=(60, 60, 60, 255), border_width=2,
             )
 
-            # Land number and terrain
-            arcade.draw_text(
-                f"Land {land.number}",
-                x, y + land_h // 2 - 15,
-                color=(255, 255, 255, 255), font_size=13,
-                anchor_x="center", bold=True,
-            )
-            arcade.draw_text(
-                terrain_name.title() + (" (Coastal)" if land.is_coastal else " (Inland)"),
-                x, y + land_h // 2 - 32,
-                color=(220, 220, 220, 200), font_size=9,
-                anchor_x="center",
-            )
+            # Land labels (pre-created Text objects)
+            self.land_name_texts[i].draw()
+            self.land_terrain_texts[i].draw()
 
-            # Draw piece sprites in the land
-            # Collect all pieces to draw as (texture_key, count) pairs
+            # Draw piece sprites
             piece_list: list[tuple[str, int]] = []
             if land.city_count > 0:
                 piece_list.append(("city", land.city_count))
@@ -310,70 +403,52 @@ class GameView(arcade.View):
                 piece_list.append(("presence", land.total_presence()))
 
             if piece_list:
-                # Layout pieces in rows within the land
-                sprite_y = y - 5
-                sprite_x_start = x - land_w // 2 + 15
+                sprite_y = cy - 5
+                sprite_x_start = cx - LAND_W // 2 + 15
                 col_offset = 0
                 for tex_key, count in piece_list:
                     tex = self.piece_textures[tex_key]
-                    for j in range(min(count, 6)):  # cap at 6 per type to avoid overflow
+                    for _ in range(min(count, 6)):
                         sx = sprite_x_start + col_offset
                         arcade.draw_texture_rect(
                             tex,
                             arcade.rect.XYWH(sx, sprite_y, PIECE_SIZE, PIECE_SIZE),
                         )
                         col_offset += PIECE_SIZE + 2
-                    # If more than shown, draw count label
-                    if count > 6:
-                        arcade.draw_text(
-                            f"+{count - 6}",
-                            sprite_x_start + col_offset, sprite_y - 4,
-                            color=(255, 255, 200, 255), font_size=8,
-                        )
-                        col_offset += 18
-                    # Move to next row if running out of horizontal space
-                    if col_offset > land_w - 30:
+                    if col_offset > LAND_W - 30:
                         col_offset = 0
                         sprite_y -= PIECE_SIZE + 4
 
     def _draw_legend(self):
-        """Draw a piece legend below the board."""
-        y = WINDOW_HEIGHT - 375
-        x = 15
-        legend_items = [
-            ("city", "City"),
-            ("town", "Town"),
-            ("explorer", "Explorer"),
-            ("dahan", "Dahan"),
-            ("blight", "Blight"),
-            ("presence", "Presence"),
-        ]
-        for tex_key, label in legend_items:
+        """Draw piece legend below the board."""
+        lx = 15
+        ly = WINDOW_HEIGHT - 375
+        legend_keys = ["city", "town", "explorer", "dahan", "blight", "presence"]
+        legend_labels = ["City", "Town", "Explorer", "Dahan", "Blight", "Presence"]
+
+        for idx, tex_key in enumerate(legend_keys):
             tex = self.piece_textures[tex_key]
             arcade.draw_texture_rect(
-                tex, arcade.rect.XYWH(x, y, PIECE_SIZE, PIECE_SIZE),
+                tex, arcade.rect.XYWH(lx, ly, PIECE_SIZE, PIECE_SIZE),
             )
-            arcade.draw_text(
-                label, x + PIECE_SIZE // 2 + 6, y - 5,
-                color=(180, 180, 170, 255), font_size=9,
-            )
-            x += len(label) * 7 + PIECE_SIZE + 15
+            self.legend_texts[idx].draw()
+            lx += len(legend_labels[idx]) * 7 + PIECE_SIZE + 15
 
     def _draw_spirit_info(self):
-        """Draw spirit status below the board."""
-        y = WINDOW_HEIGHT - 400
-        for spirit in self.game_state.spirits:
-            info = (
-                f"{spirit.name}  |  Energy: {spirit.energy}  |  "
-                f"Cards in hand: {len(spirit.hand)}  |  "
-                f"Presence on board: {spirit.presence_on_board}  |  "
-                f"Card Plays: {spirit.card_plays}"
-            )
-            arcade.draw_text(
-                info, 15, y,
-                color=(180, 200, 160, 255), font_size=11,
-            )
-            y -= 20
+        """Draw spirit/invader/fear/blight status panel."""
+        # Update spirit info text content
+        for idx, text_obj in enumerate(self.spirit_info_texts):
+            if idx < len(self.game_state.spirits):
+                spirit = self.game_state.spirits[idx]
+                text_obj.text = (
+                    f"{spirit.name}  |  Energy: {spirit.energy}  |  "
+                    f"Cards in hand: {len(spirit.hand)}  |  "
+                    f"Presence on board: {spirit.presence_on_board}  |  "
+                    f"Card Plays: {spirit.card_plays}"
+                )
+                text_obj.draw()
+            else:
+                text_obj.text = ""
 
         # Invader deck info
         deck = self.game_state.invader_deck
@@ -382,24 +457,27 @@ class GameView(arcade.View):
             inv_info += f"  |  Ravage: {deck.ravage_card.label}"
         if deck.build_card:
             inv_info += f"  |  Build: {deck.build_card.label}"
-        arcade.draw_text(inv_info, 15, y - 5, color=(200, 160, 140, 255), font_size=11)
+        self.invader_info_text.text = inv_info
+        self.invader_info_text.draw()
 
         # Fear / Terror info
         fear = self.game_state.fear_system
-        fear_info = (
+        self.fear_info_text.text = (
             f"Terror Level: {fear.terror_level.value}  |  "
             f"Fear Pool: {fear.fear_pool}  |  "
             f"Generated: {fear.generated_fear}  |  "
             f"Fear Cards remaining: {len(fear.fear_deck)}"
         )
-        arcade.draw_text(fear_info, 15, y - 25, color=(170, 140, 180, 255), font_size=11)
+        self.fear_info_text.draw()
 
         # Blight info
         if self.game_state.blight_card:
             bc = self.game_state.blight_card
             side = "BLIGHTED" if bc.is_flipped else "Healthy"
-            bl_info = f"Blight Card: {bc.name} ({side}) - {bc.blight_remaining} remaining"
-            arcade.draw_text(bl_info, 15, y - 45, color=(180, 150, 120, 255), font_size=11)
+            self.blight_info_text.text = (
+                f"Blight Card: {bc.name} ({side}) - {bc.blight_remaining} remaining"
+            )
+            self.blight_info_text.draw()
 
     def _draw_event_log(self):
         """Draw scrollable event log on the right side."""
@@ -414,34 +492,28 @@ class GameView(arcade.View):
             color=(15, 18, 25, 255),
         )
 
-        # Log header
-        arcade.draw_text(
-            "Event Log",
-            log_x + LOG_AREA_WIDTH // 2, WINDOW_HEIGHT - 15,
-            color=COLOR_TITLE, font_size=14,
-            anchor_x="center", bold=True,
-        )
+        # Header
+        self.log_header_text.draw()
 
-        # Log lines
+        # Update and draw visible log lines
         log = self.game_state.event_log
         start = self.log_scroll_offset
         end = start + self.max_visible_log_lines
         visible = log[start:end]
 
-        y = WINDOW_HEIGHT - 38
-        for line in visible:
-            # Truncate long lines
-            display = line[:60] if len(line) > 60 else line
-            arcade.draw_text(
-                display, log_x + 5, y,
-                color=(160, 160, 150, 255), font_size=9,
-            )
-            y -= 16
+        for idx, text_obj in enumerate(self.log_line_texts):
+            if idx < len(visible):
+                line = visible[idx]
+                text_obj.text = line[:60] if len(line) > 60 else line
+            else:
+                text_obj.text = ""
+            text_obj.draw()
 
         # Scroll indicator
         if len(log) > self.max_visible_log_lines:
-            arcade.draw_text(
-                f"[{start + 1}-{min(end, len(log))}/{len(log)}] Scroll to navigate",
-                log_x + 5, 10,
-                color=(100, 100, 100, 255), font_size=8,
+            self.log_scroll_text.text = (
+                f"[{start + 1}-{min(end, len(log))}/{len(log)}] Scroll to navigate"
             )
+        else:
+            self.log_scroll_text.text = ""
+        self.log_scroll_text.draw()
