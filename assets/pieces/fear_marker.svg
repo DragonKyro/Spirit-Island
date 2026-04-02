@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Fear marker: stylized eye shape -->
+  <!-- Outer eye shape -->
+  <path d="M4,32 Q32,8 60,32 Q32,56 4,32 Z" fill="#9944AA" opacity="0.3"/>
+  <path d="M4,32 Q32,8 60,32 Q32,56 4,32 Z" fill="none" stroke="#9944AA" stroke-width="2.5"/>
+  <!-- Iris -->
+  <circle cx="32" cy="32" r="11" fill="#9944AA"/>
+  <!-- Pupil -->
+  <ellipse cx="32" cy="32" rx="5" ry="8" fill="#662277"/>
+  <!-- Highlight -->
+  <circle cx="29" cy="28" r="3" fill="#BB77DD" opacity="0.7"/>
+  <!-- Inner eye accent -->
+  <path d="M10,32 Q32,16 54,32" fill="none" stroke="#BB77DD" stroke-width="1" opacity="0.4"/>
+  <path d="M10,32 Q32,48 54,32" fill="none" stroke="#BB77DD" stroke-width="1" opacity="0.4"/>
+</svg>

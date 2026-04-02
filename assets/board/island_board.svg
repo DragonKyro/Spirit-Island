@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600">
+  <defs>
+    <!-- Ocean wave pattern for the coastal edge -->
+    <clipPath id="ocean-clip">
+      <path d="
+        M 0 600 L 0 420
+        Q 40 410, 80 420 Q 120 430, 160 415
+        Q 200 400, 240 410 Q 280 420, 320 405
+        Q 360 390, 400 400 Q 440 410, 480 395
+        Q 520 380, 560 395 Q 600 410, 640 400
+        L 640 380
+        Q 660 370, 680 360 Q 700 350, 720 345
+        Q 740 340, 760 335 Q 780 330, 800 325
+        L 800 600 Z
+      "/>
+    </clipPath>
+    <!-- Subtle texture filter -->
+    <filter id="land-texture" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" result="noise" seed="3"/>
+      <feColorMatrix type="saturate" values="0" in="noise" result="gray-noise"/>
+      <feBlend in="SourceGraphic" in2="gray-noise" mode="soft-light"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="600" fill="#e8dcc8"/>
+
+  <!-- ==================== LAND POLYGONS ==================== -->
+  <!-- Layout: 2 rows of 4 lands. Bottom row (1-4) = coastal, top row (5-8) = inland -->
+
+  <!-- INLAND LANDS (top row, lands 5-8) -->
+
+  <!-- Land 5 - Jungle (inland, top-left) -->
+  <polygon
+    points="0,0 210,0 225,30 200,80 190,150 170,180 155,200 80,210 30,195 0,170"
+    fill="#2D5A27" stroke="#333" stroke-width="2" filter="url(#land-texture)"/>
+
+  <!-- Land 6 - Mountain (inland, top-center-left) -->
+  <polygon
+    points="210,0 420,0 430,25 415,70 400,130 380,170 350,195 280,210 200,205 155,200 170,180 190,150 200,80 225,30"
+    fill="#8B7355" stroke="#333" stroke-width="2" filter="url(#land-texture)"/>
+
+  <!-- Land 7 - Sands (inland, top-center-right) -->
+  <polygon
+    points="420,0 610,0 620,20 625,60 630,120 620,175 590,200 520,215 440,210 350,195 380,170 400,130 415,70 430,25"
+    fill="#C2B280" stroke="#333" stroke-width="2" filter="url(#land-texture)"/>
+
+  <!-- Land 8 - Wetland (inland, top-right) -->
+  <polygon
+    points="610,0 800,0 800,325 760,335 740,340 720,345 690,340 660,320 640,290 630,240 620,175 625,60 620,20"
+    fill="#4A7A8C" stroke="#333" stroke-width="2" filter="url(#land-texture)"/>
+
+  <!-- COASTAL LANDS (bottom row, lands 1-4, adjacent to ocean) -->
+
+  <!-- Land 1 - Jungle (coastal, bottom-left) -->
+  <polygon
+    points="0,170 30,195 80,210 155,200 200,205 210,260 190,310 160,360 120,390 80,410 40,415 0,420"
+    fill="#2D5A27" stroke="#333" stroke-width="2" filter="url(#land-texture)"/>
+
+  <!-- Land 2 - Mountain (coastal, bottom-center-left) -->
+  <polygon
+    points="155,200 200,205 280,210 350,195 370,250 360,310 340,360 300,395 240,410 160,415 120,390 160,360 190,310 210,260"
+    fill="#8B7355" stroke="#333" stroke-width="2" filter="url(#land-texture)"/>
+
+  <!-- Land 3 - Sands (coastal, bottom-center-right) -->
+  <polygon
+    points="350,195 440,210 520,215 560,230 570,280 560,340 530,380 480,400 400,405 340,400 300,395 340,360 360,310 370,250"
+    fill="#C2B280" stroke="#333" stroke-width="2" filter="url(#land-texture)"/>
+
+  <!-- Land 4 - Wetland (coastal, bottom-right) -->
+  <polygon
+    points="520,215 590,200 620,175 630,240 640,290 660,320 690,340 680,360 640,385 600,400 530,395 480,400 530,380 560,340 570,280 560,230"
+    fill="#4A7A8C" stroke="#333" stroke-width="2" filter="url(#land-texture)"/>
+
+  <!-- ==================== OCEAN ==================== -->
+  <g clip-path="url(#ocean-clip)">
+    <rect width="800" height="600" fill="#1a4a6e"/>
+    <!-- Wave highlights -->
+    <path d="M 0 440 Q 60 430, 120 445 Q 180 460, 240 440 Q 300 420, 360 435 Q 420 450, 480 430 Q 540 410, 600 425 Q 660 440, 720 420 L 720 370 Q 740 360, 760 355 L 800 345 L 800 600 L 0 600 Z" fill="#164060"/>
+    <path d="M 0 470 Q 70 460, 140 475 Q 210 490, 280 470 Q 350 450, 420 465 Q 490 480, 560 460 Q 630 445, 700 460 L 800 440 L 800 600 L 0 600 Z" fill="#123550"/>
+    <path d="M 0 510 Q 80 500, 160 515 Q 240 530, 320 510 Q 400 490, 480 505 Q 560 520, 640 500 L 800 490 L 800 600 L 0 600 Z" fill="#0f2b42"/>
+    <!-- Wave crest lines -->
+    <path d="M 0 425 Q 40 415, 80 425 Q 120 435, 160 420 Q 200 405, 240 415 Q 280 425, 320 410 Q 360 395, 400 405 Q 440 415, 480 400 Q 520 385, 560 400 Q 600 415, 640 405" fill="none" stroke="#2a6a9e" stroke-width="1.5" opacity="0.5"/>
+    <path d="M 640 385 Q 660 375, 680 365 Q 700 355, 720 350 Q 740 345, 760 340 Q 780 335, 800 330" fill="none" stroke="#2a6a9e" stroke-width="1.5" opacity="0.5"/>
+  </g>
+
+  <!-- ==================== LAND LABELS ==================== -->
+
+  <!-- Land 5 - Jungle (inland) -->
+  <text x="105" y="95" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">5</text>
+  <text x="105" y="115" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" opacity="0.85">Jungle</text>
+
+  <!-- Land 6 - Mountain (inland) -->
+  <text x="300" y="100" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">6</text>
+  <text x="300" y="120" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" opacity="0.85">Mountain</text>
+
+  <!-- Land 7 - Sands (inland) -->
+  <text x="510" y="105" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">7</text>
+  <text x="510" y="125" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" opacity="0.85">Sands</text>
+
+  <!-- Land 8 - Wetland (inland) -->
+  <text x="710" y="165" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">8</text>
+  <text x="710" y="185" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" opacity="0.85">Wetland</text>
+
+  <!-- Land 1 - Jungle (coastal) -->
+  <text x="110" y="300" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">1</text>
+  <text x="110" y="320" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" opacity="0.85">Jungle</text>
+
+  <!-- Land 2 - Mountain (coastal) -->
+  <text x="270" y="305" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">2</text>
+  <text x="270" y="325" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" opacity="0.85">Mountain</text>
+
+  <!-- Land 3 - Sands (coastal) -->
+  <text x="455" y="310" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">3</text>
+  <text x="455" y="330" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" opacity="0.85">Sands</text>
+
+  <!-- Land 4 - Wetland (coastal) -->
+  <text x="600" y="290" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">4</text>
+  <text x="600" y="310" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" opacity="0.85">Wetland</text>
+
+  <!-- ==================== OCEAN LABEL ==================== -->
+  <text x="300" y="540" text-anchor="middle" fill="#6aaad4" font-family="Arial, sans-serif" font-size="28" font-weight="bold" letter-spacing="8" opacity="0.7">OCEAN</text>
+
+  <!-- ==================== COASTAL INDICATOR ==================== -->
+  <text x="400" y="580" text-anchor="middle" fill="#4a8ab4" font-family="Arial, sans-serif" font-size="11" opacity="0.6">Lands 1-4: Coastal | Lands 5-8: Inland</text>
+
+</svg>
