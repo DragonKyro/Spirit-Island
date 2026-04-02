@@ -17,9 +17,11 @@ from src.constants import (
     WINDOW_WIDTH,
 )
 from src.engine.adversary import Adversary
+from src.engine.card_images import get_card_image_path
 from src.engine.game_state import GameResult, GameState
 from src.engine.spirit import Spirit
 from src.engine.turn_manager import TurnManager
+from src.views.card_overlay import CardOverlay
 
 
 def _btn_style(font_size: int = 13) -> dict:
@@ -123,6 +125,7 @@ class GameView(arcade.View):
             )
             self.game_state.setup()
         self.turn_manager = TurnManager(self.game_state)
+        self.turn_manager.on_card_display = self._on_card_event
 
         # Log scroll position
         self.log_scroll_offset = 0
@@ -130,6 +133,11 @@ class GameView(arcade.View):
 
         # Piece textures
         self.piece_textures = _create_piece_textures()
+
+        # Card image overlay
+        self.card_overlay = CardOverlay()
+        # Queue of card images to show (type, name) - shown one at a time
+        self.card_queue: list[tuple[str, str]] = []
 
         # Pre-created Text objects (populated in _build_text_objects)
         self.title_text: arcade.Text | None = None
@@ -191,10 +199,16 @@ class GameView(arcade.View):
         )
         btn_save.on_click = self._on_save
 
+        btn_blight = arcade.gui.UIFlatButton(
+            text="Blight Card", width=120, height=36, style=_btn_style(),
+        )
+        btn_blight.on_click = self._on_view_blight
+
         btn_layout.add(btn_next_phase)
         btn_layout.add(btn_full_turn)
         btn_layout.add(btn_auto_play)
         btn_layout.add(btn_save)
+        btn_layout.add(btn_blight)
         btn_layout.add(btn_quit)
 
         anchor = self.ui.add(arcade.gui.UIAnchorLayout())
@@ -321,8 +335,45 @@ class GameView(arcade.View):
         self.game_state.log(f"Game saved: {path}")
         self._scroll_log_to_bottom()
 
+    def _on_view_blight(self, _event):
+        if self.game_state.blight_card:
+            self._show_card("blight", self.game_state.blight_card.name)
+
     def _on_quit(self, _event):
         self.window.show_view(self.home_view)
+
+    # ─── Card overlay helpers ────────────────────────────────────────────
+
+    def _on_card_event(self, card_type: str, card_name: str) -> None:
+        """Callback from TurnManager when a card should be displayed."""
+        self.queue_card_display(card_type, card_name)
+
+    def _show_card(self, card_type: str, card_name: str) -> None:
+        """Show a card image overlay."""
+        path = get_card_image_path(card_name, card_type)
+        if path:
+            title_prefix = card_type.replace("_", " ").title()
+            self.card_overlay.show(path, title=f"{title_prefix}: {card_name}")
+
+    def _show_next_queued_card(self) -> None:
+        """Show the next card in the queue, if any."""
+        if self.card_queue:
+            card_type, card_name = self.card_queue.pop(0)
+            self._show_card(card_type, card_name)
+
+    def queue_card_display(self, card_type: str, card_name: str) -> None:
+        """Queue a card to be shown. If nothing is showing, show it immediately."""
+        if not self.card_overlay.visible:
+            self._show_card(card_type, card_name)
+        else:
+            self.card_queue.append((card_type, card_name))
+
+    def on_mouse_press(self, x, y, button, modifiers):
+        """Dismiss card overlay on click."""
+        if self.card_overlay.visible:
+            self.card_overlay.hide()
+            self._show_next_queued_card()
+            return  # consume the click
 
     def _update_title(self):
         if self.game_state.result == GameResult.IN_PROGRESS:
@@ -366,6 +417,9 @@ class GameView(arcade.View):
         self._draw_spirit_info()
         self._draw_event_log()
         self.ui.draw()
+
+        # Card overlay on top of everything
+        self.card_overlay.draw()
 
     def _draw_board(self):
         """Draw the 8 lands as colored rectangles with piece sprites."""

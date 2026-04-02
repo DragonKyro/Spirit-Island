@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 from src.engine.game_state import GamePhase, GameResult, GameState
 from src.engine.invader_actions import build, explore, ravage
+
+# Callback signature: (card_type, card_name) -> None
+CardDisplayCallback = Callable[[str, str], None] | None
 
 
 class TurnManager:
@@ -15,6 +20,7 @@ class TurnManager:
 
     def __init__(self, state: GameState):
         self.state = state
+        self.on_card_display: CardDisplayCallback = None
 
     def advance_phase(self) -> bool:
         """Execute the current phase and advance to the next.
@@ -137,6 +143,8 @@ class TurnManager:
         resolved = self.state.fear_system.resolve_earned_fear_cards()
         for card, effect in resolved:
             self.state.log(f"  Fear Card '{card.name}': {effect}")
+            if self.on_card_display:
+                self.on_card_display("fear", card.name)
             # TODO: Implement fear card effects (most require player choices)
 
         # 3a. Ravage
@@ -162,9 +170,15 @@ class TurnManager:
 
             # Handle blight placement from ravage
             for land_idx in blight_lands:
+                was_flipped = (self.state.blight_card
+                               and self.state.blight_card.is_flipped)
                 blight_events = self.state.add_blight_to_land(land_idx)
                 for be in blight_events:
                     self.state.log(f"    {be}")
+                # Show blight card image when it flips
+                if (self.on_card_display and self.state.blight_card
+                        and self.state.blight_card.is_flipped and not was_flipped):
+                    self.on_card_display("blight", self.state.blight_card.name)
                 if self.state.result != GameResult.IN_PROGRESS:
                     return
 
