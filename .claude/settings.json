@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:en.wikipedia.org)",
+      "WebFetch(domain:spiritislandwiki.com)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(cd *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(where *)",
+      "Bash(conda activate:*)",
+      "Bash(pip list:*)",
+      "Bash(pip install:*)",
+      "Bash(pdftotext \"c:/Users/klui/Desktop/Kyle P/Spirit-Island/Spirit Island Rules.pdf\" -)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(npm test *)",
+      "Bash(npx tsx *)"
+    ]
+  }
+}
