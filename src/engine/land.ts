@@ -66,30 +66,38 @@ export function hasPresence(land: Land, spiritName?: string): boolean {
 }
 
 /**
- * Standard solo island board: 8 lands.
- *   Ocean
- *  [1][2][3][4]   <- coastal
- *  [5][6][7][8]   <- inland
+ * Standard solo island board: 8 lands modeled on Spirit Island **Board D**.
+ *
+ * Terrains (2 of each, as required by the rules):
+ *   L1=Wetland L2=Jungle  L3=Wetland L4=Sands
+ *   L5=Mountain L6=Jungle L7=Sands   L8=Mountain
+ *
+ * Coastal lands (touch the ocean): L1, L2, L3.
+ * Inland: L4, L5, L6, L7, L8.
+ *
+ * Adjacency is symmetric; each entry mirrors the visual layout in
+ * `src/data/boardLayout.ts`. L5 sits at the centre and borders six
+ * other lands.
  */
 export function createSoloBoard(): Land[] {
   const lands: Land[] = [
-    makeLand(1, 'JUNGLE', true),
-    makeLand(2, 'MOUNTAIN', true),
-    makeLand(3, 'SANDS', true),
-    makeLand(4, 'WETLAND', true),
-    makeLand(5, 'JUNGLE', false),
-    makeLand(6, 'MOUNTAIN', false),
-    makeLand(7, 'SANDS', false),
-    makeLand(8, 'WETLAND', false),
+    makeLand(1, 'WETLAND',  true),
+    makeLand(2, 'JUNGLE',   true),
+    makeLand(3, 'WETLAND',  true),
+    makeLand(4, 'SANDS',    false),
+    makeLand(5, 'MOUNTAIN', false),
+    makeLand(6, 'JUNGLE',   false),
+    makeLand(7, 'SANDS',    false),
+    makeLand(8, 'MOUNTAIN', false),
   ];
-  lands[0].adjacentIndices = [1, 4, 5];
-  lands[1].adjacentIndices = [0, 2, 4, 5];
-  lands[2].adjacentIndices = [1, 3, 5, 6];
-  lands[3].adjacentIndices = [2, 6, 7];
-  lands[4].adjacentIndices = [0, 1, 2, 5];
-  lands[5].adjacentIndices = [1, 2, 3, 4, 6, 7];
-  lands[6].adjacentIndices = [2, 3, 5, 7];
-  lands[7].adjacentIndices = [3, 6];
+  lands[0].adjacentIndices = [1, 4, 7];           // L1: 2, 5, 8
+  lands[1].adjacentIndices = [0, 2, 3, 4];        // L2: 1, 3, 4, 5
+  lands[2].adjacentIndices = [1, 3];              // L3: 2, 4
+  lands[3].adjacentIndices = [1, 2, 4, 5];        // L4: 2, 3, 5, 6
+  lands[4].adjacentIndices = [0, 1, 3, 5, 6, 7];  // L5: 1, 2, 4, 6, 7, 8
+  lands[5].adjacentIndices = [3, 4, 6];           // L6: 4, 5, 7
+  lands[6].adjacentIndices = [4, 5, 7];           // L7: 5, 6, 8
+  lands[7].adjacentIndices = [0, 4, 6];           // L8: 1, 5, 7
   return lands;
 }
 

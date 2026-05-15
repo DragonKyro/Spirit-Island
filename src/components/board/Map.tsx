@@ -1,5 +1,5 @@
 import { Land } from '../../engine/land';
-import { BOARD_LAYOUT, NON_HEX_BRIDGES, VIEWBOX } from '../../data/boardLayout';
+import { BOARD_LAYOUT, OCEAN_PATH, VIEWBOX } from '../../data/boardLayout';
 import { Spirit } from '../../engine/spirit';
 import LandShape from './LandShape';
 
@@ -17,10 +17,14 @@ export default function Map({ lands, spirits, selectedIndex, onLandClick }: Prop
       style={{ width: '100%', height: 'auto', display: 'block', background: 'transparent' }}
     >
       <defs>
-        <radialGradient id="ocean-grad" cx="50%" cy="50%" r="70%">
-          <stop offset="0%" stopColor="#2a5a7a" />
+        <radialGradient id="ocean-grad" cx="20%" cy="30%" r="70%">
+          <stop offset="0%" stopColor="#3a78a0" />
           <stop offset="100%" stopColor="#0a1f33" />
         </radialGradient>
+        <linearGradient id="cliff-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#2a221c" />
+          <stop offset="100%" stopColor="#1a1410" />
+        </linearGradient>
         <radialGradient id="land-vignette" cx="50%" cy="50%" r="55%">
           <stop offset="55%" stopColor="rgba(0,0,0,0)" />
           <stop offset="100%" stopColor="rgba(0,0,0,0.55)" />
@@ -31,29 +35,12 @@ export default function Map({ lands, spirits, selectedIndex, onLandClick }: Prop
         </pattern>
       </defs>
 
-      {/* Ocean background */}
-      <rect x="0" y="0" width={VIEWBOX.width} height={VIEWBOX.height} fill="url(#ocean-grad)" />
-      <rect x="0" y="0" width={VIEWBOX.width} height={VIEWBOX.height} fill="url(#ocean-waves)" />
+      {/* Rocky cliff / "outside" background fills the whole viewBox */}
+      <rect x="0" y="0" width={VIEWBOX.width} height={VIEWBOX.height} fill="url(#cliff-grad)" />
 
-      {/* Non-hex adjacency bridges — drawn UNDER lands so they appear to emerge from beneath */}
-      {NON_HEX_BRIDGES.map(([a, b], i) => {
-        const la = BOARD_LAYOUT[a];
-        const lb = BOARD_LAYOUT[b];
-        return (
-          <line
-            key={`bridge-${i}`}
-            x1={la.centerX}
-            y1={la.centerY}
-            x2={lb.centerX}
-            y2={lb.centerY}
-            stroke="#8a7548"
-            strokeWidth="6"
-            strokeDasharray="2 6"
-            strokeLinecap="round"
-            opacity="0.75"
-          />
-        );
-      })}
+      {/* Ocean — fills just the actual sea area (upper-left), bounded by the coast */}
+      <path d={OCEAN_PATH} fill="url(#ocean-grad)" />
+      <path d={OCEAN_PATH} fill="url(#ocean-waves)" />
 
       {/* Lands */}
       {BOARD_LAYOUT.map((layout, i) => (
@@ -67,8 +54,8 @@ export default function Map({ lands, spirits, selectedIndex, onLandClick }: Prop
         />
       ))}
 
-      {/* Compass / label */}
-      <g transform="translate(40, 40)">
+      {/* Compass — placed over the ocean */}
+      <g transform="translate(40, 50)">
         <circle r="22" fill="rgba(20,30,40,0.6)" stroke="#d4a14a" strokeWidth="1" />
         <path d="M 0 -16 L 4 0 L 0 16 L -4 0 Z" fill="#d4a14a" />
         <text y="-20" textAnchor="middle" fontSize="9" fill="#d4a14a" fontWeight="700">N</text>

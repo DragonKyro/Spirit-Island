@@ -1,5 +1,5 @@
 import { Land, cityCount, explorerCount, townCount } from '../../engine/land';
-import { LandLayout, TERRAIN_FILL, TERRAIN_STROKE, polygonPath } from '../../data/boardLayout';
+import { LandLayout, TERRAIN_FILL, TERRAIN_STROKE } from '../../data/boardLayout';
 import { Spirit } from '../../engine/spirit';
 import Explorer from './sprites/Explorer';
 import Town from './sprites/Town';
@@ -50,14 +50,14 @@ export default function LandShape({ land, layout, spirits, selected, onClick }: 
       style={{ cursor: onClick ? 'pointer' : 'default' }}
     >
       <path
-        d={polygonPath(layout.vertices)}
+        d={layout.path}
         fill={TERRAIN_FILL[layout.terrain]}
         stroke={selected ? '#fff' : TERRAIN_STROKE[layout.terrain]}
         strokeWidth={selected ? 3 : 1.4}
       />
       {/* terrain texture hint: subtle darker overlay near edges */}
       <path
-        d={polygonPath(layout.vertices)}
+        d={layout.path}
         fill="url(#land-vignette)"
         opacity="0.35"
         pointerEvents="none"
