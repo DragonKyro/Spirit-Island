@@ -50,9 +50,11 @@ src/
     setup.ts              # createState(), invader deck, adversary setup, starting Presence
     phases.ts             # sequence of play: Spirit → Fast → Invader → Slow → Time Passes
     game.ts               # driver: newGame / applyAnswer / replay / score
+    ai.ts                 # heuristic AI: evaluate(), lookahead via replay, simulated card values, quickPick
   net/                    # Firebase room transport (+ in-memory fake for tests); game-agnostic
   store/
-    gameStore.ts          # engine wrapper: local save/undo, online apply via action log
+    gameStore.ts          # engine wrapper: local save/undo, AI seats (local + online), online apply via action log
+    aiClient.ts / aiWorker.ts # run the AI in a Web Worker (inline fallback)
     networkStore.ts       # rooms, lobby, presence, chat, action log
   components/
     HomeView, SetupView, GameView, RulesView
@@ -99,4 +101,6 @@ tests/engine, tests/net
 ## When adding features
 
 - Engine changes need a vitest test; run the fuzz suite (`tests/engine/fuzz.test.ts`) — it plays full random games for every Spirit, adversary and player count and checks replay determinism.
+- AI: `ai.ts` never mutates a live game — it replays copies (`replay(setup, answers)`) or `structuredClone`s state. Top-level menus are marked with `Decision.menu` so lookahead knows where an action ends. Decisions are scored by rollouts to the next turn's Growth (`DEEP` flags; `fastPolicy` plays the rollout). Weights are `W` (per-Spirit overrides in `SPIRIT_W`). Re-run the opt-in benchmark after changing the AI: `AI_BENCH=1 npx vitest run tests/engine/aiBench.test.ts` (env: `AI_SEEDS`, `AI_SPIRITS`, `AI_ADV`/`AI_LVL`, `AI_W`/`AI_SW` JSON weight overrides, `AI_DEEP=0`, `AI_DEEP_ALL=0`, `AI_HORIZON`); about 4 minutes for 12 seeds.
+- Online AI seats (`Seat.ai`, uuid `ai-…`) are played by one device, `aiRunnerUuid(lobby, presence)` (the host, else the first connected person); it sends their answers with the AI seat as `s`. Duplicate sends are harmless (stale answers are dropped). Undo votes count only human seats (`humanSeats`) and undo back to the last human move.
 - Bump `GameSetup.v` if saved games / logs from older builds would replay differently.

@@ -246,3 +246,19 @@ describe('review fixes', () => {
     expect(d.options.map((o) => o.key)).toEqual(['2', '1', '0']);
   });
 });
+
+describe('power menu', () => {
+  it('only lists Powers that have a legal target', async () => {
+    const { availablePowers } = await import('../../src/engine/phases');
+    const gs = blank();
+    const s = gs.spirits[0];
+    s.played = ['shatter-homesteads']; // Range 2 from a Sacred Site
+    s.cardRevealed = 0;
+    // River's only Presence: a single one in Mountain A1 (not a Sacred Site, not a Wetland)
+    space(gs, 'A5').presence[0] = 0;
+    space(gs, 'A1').presence[0] = 1;
+    expect(availablePowers(gs, s, 'SLOW').map((p) => p.key)).not.toContain('card:shatter-homesteads');
+    space(gs, 'A1').presence[0] = 2;
+    expect(availablePowers(gs, s, 'SLOW').map((p) => p.key)).toContain('card:shatter-homesteads');
+  });
+});

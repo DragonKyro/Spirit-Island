@@ -19,6 +19,7 @@ export function assignBoards(chosen: (BoardName | null)[]): BoardName[] {
 export default function SetupView({ onStart, onBack }: { onStart: (s: GameSetup) => void; onBack: () => void }) {
   const [spirits, setSpirits] = useState<SpiritId[]>(['river']);
   const [boards, setBoards] = useState<(BoardName | null)[]>([null]);
+  const [ai, setAI] = useState<boolean[]>([false]);
   const [adv, setAdv] = useState<AdversaryId>('none');
   const [level, setLevel] = useState(0);
 
@@ -28,16 +29,18 @@ export default function SetupView({ onStart, onBack }: { onStart: (s: GameSetup)
       if (spirits.length === 1) return;
       setSpirits(spirits.filter((s) => s !== id));
       setBoards(boards.filter((_, j) => j !== i));
+      setAI(ai.filter((_, j) => j !== i));
     } else if (spirits.length < 4) {
       setSpirits([...spirits, id]);
       setBoards([...boards, null]);
+      setAI([...ai, spirits.length > 0]);
     }
   };
   const a = ADVERSARIES[adv];
   const lvl = adversaryLevel(adv, level);
 
   const start = () =>
-    onStart({ v: 1, seed: randomSeed(), spirits, boards: assignBoards(boards), adversary: adv, adversaryLevel: adv === 'none' ? 0 : level });
+    onStart({ v: 1, seed: randomSeed(), spirits, boards: assignBoards(boards), adversary: adv, adversaryLevel: adv === 'none' ? 0 : level, ...(ai.some(Boolean) ? { ai } : {}) });
 
   return (
     <div className="setup-view">
@@ -48,7 +51,7 @@ export default function SetupView({ onStart, onBack }: { onStart: (s: GameSetup)
         <h2>New game</h2>
       </header>
       <p className="dim">
-        Choose 1 Spirit for a solo game, or up to 4 to play several Spirits yourself (one island board each). New players: try a Low-complexity Spirit.
+        Choose 1 Spirit for a solo game, or up to 4 (one island board each) — play them all yourself, or let the AI play some of them as teammates. Make every Spirit AI to watch a game. New players: try a Low-complexity Spirit.
       </p>
       <div className="spirit-grid">
         {SPIRIT_ORDER.map((id) => {
@@ -67,10 +70,17 @@ export default function SetupView({ onStart, onBack }: { onStart: (s: GameSetup)
       </div>
       <div className="setup-options">
         <div className="opt">
-          <label>Island boards</label>
+          <label>Players &amp; island boards</label>
           {spirits.map((s, i) => (
             <div key={s} className="board-pick">
               <SpiritEmblem spirit={s} size={20} />
+              <button
+                className={`seat-kind${ai[i] ? ' is-ai' : ''}`}
+                onClick={() => setAI(ai.map((x, j) => (j === i ? !x : x)))}
+                title="Who plays this Spirit"
+              >
+                {ai[i] ? '🤖 AI' : '👤 You'}
+              </button>
               <select
                 value={boards[i] ?? ''}
                 onChange={(e) => {

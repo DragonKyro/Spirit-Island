@@ -101,4 +101,27 @@ describe('OnlineLobby', () => {
     expect(startButton(html)?.[1]).toBeUndefined();
     expect(html).toContain('1 player ready.');
   });
+
+  it('the host adds an AI player and picks its spirit; guests only see it', async () => {
+    const { host, code } = await hostRoom();
+    await host.net().chooseSpirit('river');
+    await host.net().addAISeat('earth');
+    await flush();
+    const gus = await joinAs('guest-uuid', 'Gus', code);
+    // the guest's device was made last
+    let html = await render(gus);
+    expect(html).not.toContain('+ Add AI player');
+    expect(html).toContain('AI 1');
+    expect(html).toContain('>AI<');
+    expect(html).toContain('Vital Strength of the Earth');
+    expect(html).not.toContain('aria-label="Spirit for AI 1"');
+    expect(html).toContain('played on the host&#x27;s device');
+
+    const again = await joinAs('host-uuid', 'Hana', code);
+    html = await render(again);
+    expect(html).toContain('+ Add AI player');
+    expect(html).toContain('aria-label="Spirit for AI 1"');
+    expect(html).toContain('aria-label="Remove AI 1"');
+    expect(html).toContain('played on your device');
+  });
 });

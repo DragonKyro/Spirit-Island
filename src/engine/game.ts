@@ -13,7 +13,7 @@ export interface Game {
   setup: GameSetup;
   gs: GameState;
   gen: Eff;
-  answers: Answer[];
+  answers: SeatedAnswer[];
 }
 
 function step(game: Game, ans?: Answer): void {
@@ -53,7 +53,8 @@ export function canApply(game: Game, ans: Answer, seat?: number): Decision | nul
 /** Apply an answer. Invalid / stale answers are ignored (returns false) — deterministically on every device. */
 export function applyAnswer(game: Game, ans: Answer, seat?: number): boolean {
   if (!canApply(game, ans, seat)) return false;
-  game.answers.push({ d: ans.d, k: ans.k });
+  // the seat goes with the answer (online), so a replay re-checks it and undo knows who moved
+  game.answers.push(seat === undefined ? { d: ans.d, k: ans.k } : { d: ans.d, k: ans.k, s: seat });
   step(game, ans);
   return true;
 }

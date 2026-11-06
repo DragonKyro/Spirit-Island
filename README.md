@@ -16,6 +16,7 @@ Play it at: **https://klui.github.io/Spirit-Island/**
 - **Online play** through Firebase: create a room, share the link, each player takes a seat and a Spirit; play is simultaneous where the rules allow.
 - Solo games save automatically in the browser, with unlimited Undo; online games support undo by agreement.
 - Invader Phase playback, an illustrated rules reference with engine-rendered examples, and game history & stats.
+- **Heuristic AI**: let the AI play any Spirit as your teammate (or all of them, to watch), locally or as AI players in online rooms, and ask it for a 💡 suggestion on any decision.
 - All art is original inline SVG (pieces, icons, terrain, Spirit emblems), inspired by the rulebook's iconography.
 
 ## Tech stack
@@ -59,11 +60,17 @@ Ongoing list — check items off (or delete them) as they land.
 - [ ] Decide whether to keep the official card scans in `public/cards/` on the public site (card art © Greater Than Games).
 
 **Rules gaps & judgment calls**
-- [ ] Beginner setup from the rulebook: Power Progression cards and "no Blight Card" (Invader Board blight) — needs verified numbers.
+- [ ] Beginner setup from the rulebook: Power Progression cards, and "no Blight Card" mode (the Invader Board then holds 5 Blight per player — confirmed from the Spirit Island TTS mod).
 - [ ] Generic "act as if you had fewer Elements" for every threshold (now only Massive Flooding and Tsunami offer it).
 - [ ] Replace: confirm whether a replaced Invader can be destroyed by the Damage it keeps (currently capped at Health − 1).
 - [ ] Corner-only adjacency where 3–4 boards meet at a point (only lands sharing a board edge are joined today).
 - [ ] Dissolve the Bonds of Kinship: enforce "as many different lands as possible" strictly.
+
+**AI**
+- [x] Heuristic AI: position evaluation + simulated card values; plays AI teammates, watch mode, and 💡 suggestions; runs in a Web Worker.
+- [x] Stronger play, round 1: every decision is scored by playing out the rest of the turn (through the Invader Phase and Time Passes, with a fast policy for the other choices); evaluation weights tuned against the benchmark; the threat forecast knows the adversaries' rules (Heavy Mining, England's Build and Capital loss, …) and Thunderspeaker's Sworn to Victory. Benchmark (`AI_BENCH=1 npx vitest run tests/engine/aiBench.test.ts`: solo, no adversary, 8 Spirits × 12 seeds on boards A–D): 26/96 → 42/96 wins.
+- [ ] Stronger play, round 2: Ocean's Hungry Grasp never wins (0/12) and Thunderspeaker rarely does (3/12): they need Spirit-specific plans (Ocean: drown Invaders by pushing them into the Ocean; Thunderspeaker: move Presence with the Dahan). Two-turn rollouts won no more games and were 1.6× slower. Also benchmark against the adversaries.
+- [x] AI seats in online rooms: the host adds AI players in the lobby; the host's device plays them (or the first connected player while the host is away), and only the people vote on undo.
 
 **Content**
 - [ ] Base-game Scenarios (Blitz, Guard the Isle's Heart, Rituals of Terror, Dahan Insurrection).

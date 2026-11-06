@@ -173,6 +173,8 @@ export interface GameSetup {
   adversaryLevel: number;
   /** optional display names per seat */
   names?: string[];
+  /** seats played by the built-in AI (presentation only: never changes how answers replay) */
+  ai?: boolean[];
 }
 
 export interface GameState {

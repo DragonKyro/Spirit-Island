@@ -57,6 +57,12 @@ export function DecisionPanel({
   others,
   onAnswer,
   offline = [],
+  thinking = null,
+  aiOwners,
+  hint = null,
+  onSuggest,
+  aiPaused = false,
+  canPause = false,
 }: {
   gs: GameState;
   mine: Decision[];
@@ -64,13 +70,27 @@ export function DecisionPanel({
   onAnswer: (d: number, k: string) => void;
   /** online: seats whose player is not connected */
   offline?: number[];
+  /** decision id the AI is working on */
+  thinking?: number | null;
+  /** seats played by the AI */
+  aiOwners?: boolean[];
+  /** the AI's suggestion for one of my decisions */
+  hint?: { d: number; k: string } | null;
+  onSuggest?: (d: number) => void;
+  aiPaused?: boolean;
+  /** local games have a Pause AI button */
+  canPause?: boolean;
 }) {
+  const byAI = (d: Decision) => (d.owner >= 0 ? !!aiOwners?.[d.owner] : !!aiOwners?.every(Boolean));
   const ownerName = (d: Decision) =>
     d.owner === -1 ? 'Any player' : `${gs.setup.names?.[d.owner] ? `${gs.setup.names[d.owner]} (${gs.spirits[d.owner]?.name})` : gs.spirits[d.owner]?.name ?? ''}${offline.includes(d.owner) ? ' — offline' : ''}`;
   return (
     <section className="panel decision-panel">
       {gs.activity && <div className="dp-activity">{gs.activity}</div>}
       {mine.length === 0 && others.length === 0 && gs.result.kind === 'IN_PROGRESS' && <p className="dim">Resolving…</p>}
+      {mine.length === 0 && others.length > 0 && others.every(byAI) && (
+        <p className="dim small">The AI is playing — watch the map{canPause ? ', or pause it from the header' : ''}.</p>
+      )}
       {mine.map((d) => {
         const owner = d.owner >= 0 ? gs.spirits[d.owner] : null;
         const main = d.options.filter((o) => !o.done);
@@ -83,6 +103,11 @@ export function DecisionPanel({
               {d.source && <span className="dp-source">{d.source}</span>}
             </div>
             <div className="dp-prompt">{d.prompt}</div>
+            {onSuggest && d.options.length > 1 && (
+              <button className="link small dp-suggest" onClick={() => onSuggest(d.id)} title="Ask the AI what it would do">
+                💡 Suggest
+              </button>
+            )}
             {d.show && <img className="dp-show" src={cardImage(d.show.kind, d.show.id)} alt="" />}
             {main.some((o) => o.space) && <div className="dp-hint">Click a highlighted land on the map, or choose below.</div>}
             {isCardPick(main) ? (
@@ -90,7 +115,7 @@ export function DecisionPanel({
                 {main.map((o) => (
                   <button
                     key={o.key}
-                    className="dp-cardbtn"
+                    className={`dp-cardbtn${hint && hint.d === d.id && hint.k === o.key ? ' hinted' : ''}`}
                     onClick={() => { showPreview(null); onAnswer(d.id, o.key); }}
                     onMouseEnter={() => showPreview(cardImage('powers', o.card!))}
                     onMouseLeave={() => showPreview(null)}
@@ -104,7 +129,7 @@ export function DecisionPanel({
             ) : (
             <div className="dp-options">
               {main.map((o) => (
-                <button key={o.key} className="dp-option" onClick={() => onAnswer(d.id, o.key)} title={o.hint}>
+                <button key={o.key} className={`dp-option${hint && hint.d === d.id && hint.k === o.key ? ' hinted' : ''}`} onClick={() => onAnswer(d.id, o.key)} title={o.hint}>
                   <OptionIcon o={o} />
                   <span>{o.label}</span>
                   {o.hint && <small>{o.hint}</small>}
@@ -115,7 +140,7 @@ export function DecisionPanel({
             {done.length > 0 && (
               <div className="dp-done">
                 {done.map((o) => (
-                  <button key={o.key} className="secondary" onClick={() => onAnswer(d.id, o.key)}>
+                  <button key={o.key} className={`secondary${hint && hint.d === d.id && hint.k === o.key ? ' hinted' : ''}`} onClick={() => onAnswer(d.id, o.key)}>
                     {o.label}
                   </button>
                 ))}
@@ -126,11 +151,15 @@ export function DecisionPanel({
       })}
       {others.length > 0 && (
         <div className="dp-waiting">
-          {others.map((d) => (
-            <div key={d.id}>
-              ⏳ Waiting for <strong>{ownerName(d)}</strong>: {d.prompt}
-            </div>
-          ))}
+          {others.map((d) => {
+            const isAI = byAI(d);
+            return (
+              <div key={d.id}>
+                {isAI ? (aiPaused ? '⏸' : thinking === d.id ? '🤖' : '⏳') : '⏳'} {isAI ? (aiPaused ? 'AI paused — ' : 'AI: ') : 'Waiting for '}
+                <strong>{ownerName(d)}</strong>: {d.prompt}
+              </div>
+            );
+          })}
         </div>
       )}
     </section>

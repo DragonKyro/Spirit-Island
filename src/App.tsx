@@ -10,8 +10,8 @@ import RulesView from './components/RulesView';
 import SetupView, { assignBoards, randomSeed } from './components/SetupView';
 import OnlineLobby from './components/online/OnlineLobby';
 import type { LobbyState } from './net/types';
-import { useGameStore } from './store/gameStore';
-import { offlineSeats, useNetworkStore } from './store/networkStore';
+import { humanSeats, useGameStore } from './store/gameStore';
+import { aiRunnerUuid, offlineSeats, useNetworkStore } from './store/networkStore';
 import HistoryView from './components/HistoryView';
 import { loadHistory } from './store/history';
 import { SPIRIT_COLORS } from './components/art';
@@ -29,6 +29,7 @@ function asSetup(x: unknown): GameSetup | null {
   if (!s.spirits.every((id) => SPIRIT_ORDER.includes(id))) return null;
   if (!Array.isArray(s.boards) || s.boards.length !== s.spirits.length || !s.boards.every((b) => BOARD_NAMES.includes(b))) return null;
   if (!ADVERSARY_ORDER.includes(s.adversary) || typeof s.adversaryLevel !== 'number') return null;
+  if (s.ai !== undefined && !(Array.isArray(s.ai) && s.ai.length === s.spirits.length && s.ai.every((x) => typeof x === 'boolean'))) return null;
   return s;
 }
 
@@ -50,6 +51,7 @@ function setupFromLobby(lobby: LobbyState): GameSetup {
     adversary: adv,
     adversaryLevel: adv === 'none' ? 0 : Math.max(0, Math.min(6, lobby.settings.adversaryLevel)),
     names: seats.map((s) => s.name),
+    ...(seats.some((s) => s.ai) ? { ai: seats.map((s) => !!s.ai) } : {}),
   };
 }
 
@@ -60,7 +62,8 @@ function useOnlineBridge(active: boolean) {
   const lobby = useNetworkStore((s) => s.lobby);
   const me = useNetworkStore((s) => s.me);
   const match = useNetworkStore((s) => s.match);
-  const { startOnline, syncOnline, setSender } = useGameStore();
+  const presence = useNetworkStore((s) => s.presence);
+  const { startOnline, syncOnline, setSender, setAIRunner } = useGameStore();
   const game = useGameStore((s) => s.game);
 
   useEffect(() => {
@@ -70,7 +73,9 @@ function useOnlineBridge(active: boolean) {
     const seat = lobby ? lobby.seats.findIndex((s) => s.uuid === me.uuid) : -1;
     startOnline(setup, seat >= 0 ? seat : null);
     setSender((a) => {
-      useNetworkStore.getState().sendAction(a).catch((e: Error) => console.warn('[net] send failed', e.message));
+      const sent = useNetworkStore.getState().sendAction(a);
+      sent.catch((e: Error) => console.warn('[net] send failed', e.message));
+      return sent;
     });
     return () => setSender(null);
     // a new match index means a new game
@@ -80,6 +85,12 @@ function useOnlineBridge(active: boolean) {
   useEffect(() => {
     if (active && game) syncOnline(actions);
   }, [active, actions, game, syncOnline]);
+
+  // AI seats are played on one device (see aiRunnerUuid)
+  const runner = active && lobby ? aiRunnerUuid(lobby, presence) : null;
+  useEffect(() => {
+    setAIRunner(runner !== null && runner === me.uuid);
+  }, [runner, me.uuid, setAIRunner]);
 }
 
 function OnlineBar() {
@@ -88,7 +99,8 @@ function OnlineBar() {
   const game = useGameStore((s) => s.game);
   useGameStore((s) => s.tick);
   const result = game?.gs.result.kind;
-  const players = game?.setup.spirits.length ?? 0;
+  // only people vote on undo
+  const players = game ? humanSeats(game.setup).length : 0;
   const nameOf = (i: number) => game?.setup.names?.[i] ?? game?.gs.spirits[i]?.name ?? `Seat ${i + 1}`;
   const off = lobby ? offlineSeats(lobby.seats, presence).map((s) => s.name) : [];
   return (
@@ -148,6 +160,7 @@ function devDemo(): boolean {
     boards: BOARD_NAMES.slice(0, spirits.length) as BoardName[],
     adversary: ADVERSARY_ORDER.includes(adv) ? adv : 'none',
     adversaryLevel: Number(q.get('lvl') ?? 0),
+    ...(q.get('ai') ? { ai: q.get('ai')!.split(',').map((x) => x === '1') } : {}),
   });
   for (let i = 0, n = Number(q.get('steps') ?? 0); i < n; i++) {
     const g = useGameStore.getState().game!;
@@ -176,7 +189,7 @@ export default function App() {
   const inOnlineGame = online && netStatus === 'playing' && !!start && !!asSetup(start.setup);
   const lobby = useNetworkStore((s) => s.lobby);
   const presence = useNetworkStore((s) => s.presence);
-  const offlineSeatIndexes = lobby ? lobby.seats.map((s, i) => (presence.some((p) => p.uuid === s.uuid) ? -1 : i)).filter((i) => i >= 0) : [];
+  const offlineSeatIndexes = lobby ? lobby.seats.map((s, i) => (s.ai || presence.some((p) => p.uuid === s.uuid) ? -1 : i)).filter((i) => i >= 0) : [];
 
   switch (view) {
     case 'home':

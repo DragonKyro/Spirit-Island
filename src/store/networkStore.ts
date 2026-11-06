@@ -118,6 +118,12 @@ export interface NetworkState {
   leaveSeat(): Promise<void>;
   /** Pick (or with null, drop) your seat's spirit. A spirit another seat holds is refused (see `error`). */
   chooseSpirit(spirit: string | null): Promise<void>;
+  /** Host only: add an AI player (with `spirit`, if no seat holds it yet) while the lobby is open. */
+  addAISeat(spirit?: string | null): Promise<void>;
+  /** Host only: remove the AI player in seat `uuid`. */
+  removeAISeat(uuid: string): Promise<void>;
+  /** Host only: pick (or with null, drop) the spirit of the AI player in seat `uuid`. */
+  chooseAISpirit(uuid: string, spirit: string | null): Promise<void>;
   /** Host only. */
   setSettings(patch: Partial<LobbySettings>): Promise<void>;
   /**
@@ -193,6 +199,7 @@ export function lobbyStartProblem(lobby: LobbyState): string | null {
   const seats = lobby.seats;
   if (seats.length === 0) return 'Nobody is seated yet.';
   if (seats.length > MAX_SEATS) return `At most ${MAX_SEATS} players can play (${seats.length} seated).`;
+  if (seats.every((s) => s.ai)) return 'At least one person must take a seat (AI players need company).';
   const waiting = seats.filter((s) => !s.spirit).map((s) => s.name || 'A player');
   if (waiting.length === 1) return `${waiting[0]} hasn't chosen a spirit yet.`;
   if (waiting.length > 1) return `${waiting.join(', ')} haven't chosen spirits yet.`;
@@ -234,6 +241,21 @@ function withoutSeat(lobby: LobbyState, index: number): LobbyState {
     seats: lobby.seats.filter((_, i) => i !== index),
     settings: sanitizeSettings({ ...lobby.settings, boards }),
   };
+}
+
+/** Give seat `index` `spirit` (null drops it). `takenBy` names the seat already holding it (then nothing changes). */
+function withSpirit(lobby: LobbyState, index: number, spirit: string | null): { lobby: LobbyState | null; takenBy: string | null } {
+  if (lobby.match !== null || index < 0 || lobby.seats[index]!.spirit === spirit) return { lobby: null, takenBy: null };
+  const holder = spirit === null ? undefined : lobby.seats.find((s, j) => j !== index && s.spirit === spirit);
+  if (holder) return { lobby: null, takenBy: holder.name || 'another player' };
+  return { lobby: { ...lobby, seats: lobby.seats.map((s, j) => (j === index ? { ...s, spirit } : s)) }, takenBy: null };
+}
+
+/** The first free "AI n" name. */
+function aiSeatName(seats: Seat[]): string {
+  let n = 1;
+  while (seats.some((s) => s.name === `AI ${n}`)) n++;
+  return `AI ${n}`;
 }
 
 function messageId(): string {
@@ -737,15 +759,47 @@ export const useNetworkStore = create<NetworkState>((set, get) => {
     chooseSpirit: async (spirit) => {
       let takenBy = null as string | null;
       await editLobby((l) => {
-        takenBy = null;
-        const i = l.seats.findIndex((s) => s.uuid === myUuid);
-        if (l.match !== null || i < 0 || l.seats[i]!.spirit === spirit) return null;
-        const holder = spirit === null ? undefined : l.seats.find((s, j) => j !== i && s.spirit === spirit);
-        if (holder) {
-          takenBy = holder.name || 'another player';
+        const r = withSpirit(l, l.seats.findIndex((s) => s.uuid === myUuid), spirit);
+        takenBy = r.takenBy;
+        return r.lobby;
+      });
+      if (takenBy) set({ error: `That spirit is already taken by ${takenBy}.` });
+    },
+
+    addAISeat: async (spirit = null) => {
+      if (!get().isHost) return;
+      const uuid = `ai-${newNonce()}`;
+      let full = false as boolean;
+      await editLobby((l) => {
+        full = false;
+        if (l.match !== null || l.hostUuid !== myUuid) return null;
+        if (l.seats.length >= MAX_SEATS) {
+          full = true;
           return null;
         }
-        return { ...l, seats: l.seats.map((s, j) => (j === i ? { ...s, spirit } : s)) };
+        const free = spirit !== null && !l.seats.some((s) => s.spirit === spirit);
+        return { ...l, seats: [...l.seats, { uuid, name: aiSeatName(l.seats), spirit: free ? spirit : null, ai: true }] };
+      });
+      if (full) set({ error: `The table is full (${MAX_SEATS} players).` });
+    },
+
+    removeAISeat: async (uuid) => {
+      if (!get().isHost) return;
+      await editLobby((l) => {
+        const i = l.seats.findIndex((s) => s.uuid === uuid && s.ai);
+        return l.match !== null || l.hostUuid !== myUuid || i < 0 ? null : withoutSeat(l, i);
+      });
+    },
+
+    chooseAISpirit: async (uuid, spirit) => {
+      if (!get().isHost) return;
+      let takenBy = null as string | null;
+      await editLobby((l) => {
+        takenBy = null;
+        if (l.hostUuid !== myUuid) return null;
+        const r = withSpirit(l, l.seats.findIndex((s) => s.uuid === uuid && s.ai), spirit);
+        takenBy = r.takenBy;
+        return r.lobby;
       });
       if (takenBy) set({ error: `That spirit is already taken by ${takenBy}.` });
     },
@@ -851,8 +905,20 @@ export function isInRoom(status: NetStatus): boolean {
   return status === 'connecting' || status === 'lobby' || status === 'playing';
 }
 
-/** Seats whose owner isn't connected right now. */
+/** Seats whose owner isn't connected right now (AI seats never are). */
 export function offlineSeats(seats: Seat[], presence: Presence[]): Seat[] {
   const online = new Set(presence.map((p) => p.uuid));
-  return seats.filter((s) => !online.has(s.uuid));
+  return seats.filter((s) => !s.ai && !online.has(s.uuid));
+}
+
+/**
+ * The device that plays the AI seats: the host while connected, else the first
+ * connected person in seat order. Devices may briefly disagree (presence lags);
+ * a duplicate AI move is harmless, since the engine drops stale answers.
+ */
+export function aiRunnerUuid(lobby: LobbyState, presence: Presence[]): string | null {
+  if (!lobby.seats.some((s) => s.ai)) return null;
+  const here = new Set(presence.map((p) => p.uuid));
+  const order = [lobby.hostUuid, ...lobby.seats.filter((s) => !s.ai).map((s) => s.uuid)];
+  return order.find((u) => here.has(u)) ?? null;
 }

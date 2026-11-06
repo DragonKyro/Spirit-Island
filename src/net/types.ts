@@ -13,6 +13,11 @@ export interface Seat {
   name: string;
   /** Chosen spirit id; null until picked. A spirit belongs to at most one seat. */
   spirit: string | null;
+  /**
+   * Played by the AI (added by the host; its uuid is made up, `ai-…`). The
+   * host's device plays it, or the first connected player while the host is away.
+   */
+  ai?: boolean;
 }
 
 export interface LobbySettings {

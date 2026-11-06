@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Decision, Option } from '../engine/decide';
 import { score } from '../engine/game';
-import { useGameStore } from '../store/gameStore';
+import { isAIDecision, useGameStore } from '../store/gameStore';
 import { SPIRIT_COLORS, SpiritEmblem, TerrainDefs } from './art';
 import IslandMap from './board/Map';
 import { CardPreviewHost } from './cards/CardPreview';
@@ -34,7 +34,7 @@ const shortCaption = (t: string) => {
 };
 
 export default function GameView({ onExit, online, offline }: { onExit: () => void; online?: React.ReactNode; offline?: number[] }) {
-  const { game, mode, seat, answer, undo, canUndo } = useGameStore();
+  const { game, mode, seat, answer, undo, canUndo, aiPaused, setAIPaused, aiFast, setAIFast, aiThinking, hint, suggest } = useGameStore();
   useGameStore((s) => s.tick); // re-render on every engine step
   const [tab, setTab] = useState<number | null>(null);
   const [pop, setPop] = useState<Popover | null>(null);
@@ -44,7 +44,10 @@ export default function GameView({ onExit, online, offline }: { onExit: () => vo
   const gs = game?.gs;
   const { mine, others } = useMemo(() => {
     if (!gs) return { mine: [] as Decision[], others: [] as Decision[] };
-    if (mode === 'local') return { mine: gs.pending, others: [] as Decision[] };
+    if (mode === 'local') {
+      const human = gs.pending.filter((d) => !isAIDecision(game!, d));
+      return { mine: human, others: gs.pending.filter((d) => !human.includes(d)) };
+    }
     const m = gs.pending.filter((d) => seat !== null && (d.owner === seat || d.owner === -1));
     return { mine: m, others: gs.pending.filter((d) => !m.includes(d)) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,6 +112,16 @@ export default function GameView({ onExit, online, offline }: { onExit: () => vo
             ▶ Invaders
           </button>
         )}
+        {mode === 'local' && game.setup.ai?.some(Boolean) && (
+          <>
+            <button className="secondary" onClick={() => setAIPaused(!aiPaused)} title="Pause or resume the AI players">
+              {aiPaused ? '▶ Resume AI' : '⏸ Pause AI'}
+            </button>
+            <button className="secondary" onClick={() => setAIFast(!aiFast)} title="AI move speed">
+              {aiFast ? '🐇 Fast' : '🐢 Normal'}
+            </button>
+          </>
+        )}
         {mode === 'local' && (
           <button className="secondary" disabled={!canUndo()} onClick={() => { setPop(null); undo(); }} title="Undo your last choice">
             ↶ Undo
@@ -161,7 +174,19 @@ export default function GameView({ onExit, online, offline }: { onExit: () => vo
         </div>
         <aside className="sidebar" data-tab={mobileTab}>
           {online}
-          <DecisionPanel gs={gs} mine={mine} others={others} onAnswer={respond} offline={offline} />
+          <DecisionPanel
+            gs={gs}
+            mine={mine}
+            others={others}
+            onAnswer={respond}
+            offline={offline}
+            thinking={aiThinking}
+            aiOwners={game.setup.ai}
+            hint={hint}
+            onSuggest={suggest}
+            aiPaused={mode === 'local' && aiPaused}
+            canPause={mode === 'local'}
+          />
           <nav className="mobile-tabs" aria-label="Panels">
             {(['spirit', 'invaders', 'log'] as const).map((t) => (
               <button key={t} className={mobileTab === t ? 'active' : ''} onClick={() => setMobileTab(t)}>

@@ -29,6 +29,7 @@ import {
   energyIncome,
   forgetPowerCard,
   gainEnergy,
+  landTargets,
   gainPowerCard,
   hasReclaimOne,
   landName,
@@ -129,6 +130,7 @@ function* growth(gs: GameState, s: SpiritState): Eff {
   const k = yield* choose(gs, s.index, `${s.name}: choose Growth${g.always ? ` (plus: ${g.always.map(growthLabel).join(', ')})` : ''}`, options, {
     always: true,
     source: 'Growth',
+    menu: 'growth',
   });
   const items = [...(g.always ?? []), ...g.options[Number(k)]];
   log(gs, `${s.name} Grows: ${items.map(growthLabel).join(', ')}`);
@@ -187,6 +189,7 @@ function* playCards(gs: GameState, s: SpiritState): Eff {
     const k = yield* choose(gs, s.index, `${s.name}: play Power Cards (${Math.max(0, left)} play${left === 1 ? '' : 's'} left, ${s.energy} Energy)`, options, {
       always: true,
       source: 'Play Power Cards',
+      menu: 'play',
     });
     if (k === 'done') return;
     if (k === 'reclaim') {
@@ -216,18 +219,26 @@ function slowAsFastLeft(s: SpiritState): number {
   return air + s.slowAsFast.boon - s.usedSlowAsFast;
 }
 
-export function availablePowers(_gs: GameState, s: SpiritState, speed: Speed): PowerChoice[] {
+/** Does this Power have at least one legal target right now? */
+function hasTarget(gs: GameState, s: SpiritState, id: string, isCard: boolean): boolean {
+  const t = isCard ? CARDS[id].target : INNATES[id].target;
+  if (t.kind === 'spirit') return true;
+  const bonus = isCard ? cardRangeBonus(id, elementsOf(s)) : 0;
+  return landTargets(gs, s, t.range, t.filter, bonus).length > 0;
+}
+
+export function availablePowers(gs: GameState, s: SpiritState, speed: Speed): PowerChoice[] {
   const out: PowerChoice[] = [];
   const el = elementsOf(s);
   const swift = speed === 'FAST' && slowAsFastLeft(s) > 0;
   for (const id of s.played) {
-    if (s.used.includes(id)) continue;
+    if (s.used.includes(id) || !hasTarget(gs, s, id, true)) continue;
     const c = CARDS[id];
     if (c.speed === speed) out.push({ key: `card:${id}`, label: c.name, card: id });
     else if (swift && c.speed === 'SLOW') out.push({ key: `card:${id}`, label: `${c.name} (as Fast)`, card: id, hint: 'Slow Power used as Fast' });
   }
   for (const inn of SPIRITS[s.id].innates) {
-    if (s.used.includes(inn.id) || !tiersMet(inn.id, el).length) continue;
+    if (s.used.includes(inn.id) || !tiersMet(inn.id, el).length || !hasTarget(gs, s, inn.id, false)) continue;
     if (inn.speed === speed) out.push({ key: `innate:${inn.id}`, label: `${inn.name} (Innate)` });
     else if (speed === 'FAST' && (innateMayBeFast(inn.id, el) || swift)) out.push({ key: `innate:${inn.id}`, label: `${inn.name} (Innate, as Fast)` });
   }
@@ -239,6 +250,7 @@ export function availablePowers(_gs: GameState, s: SpiritState, speed: Speed): P
       // a Repeat happens at the speed the original was used at
       if ((speed === 'FAST') !== s.usedFast.includes(id)) continue;
       if (r.payCost && s.energy < c.cost) continue;
+      if (!hasTarget(gs, s, id, true)) continue;
       out.push({ key: `repeat:${ri}:${id}`, label: `Repeat ${c.name} (${r.source}${r.payCost ? `, pay ${c.cost} Energy` : ''})`, card: id });
     }
   });
@@ -276,6 +288,7 @@ function* powerPhase(gs: GameState, speed: Speed): Eff {
           prompt: `${s.name}: ${av.length ? `resolve a ${speed === 'FAST' ? 'Fast' : 'Slow'} Power` : `no ${speed === 'FAST' ? 'Fast' : 'Slow'} Powers to resolve`}`,
           options,
           source: speed === 'FAST' ? 'Fast Powers' : 'Slow Powers',
+          menu: 'power',
         };
         cache.set(s.index, { sig, dec });
         decs.push(dec);

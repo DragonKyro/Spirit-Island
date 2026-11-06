@@ -205,6 +205,26 @@
   border-color: var(--accent);
 }
 
+.ol-seat.ai {
+  border-style: dashed;
+  border-color: #4a6a8a;
+}
+
+.ol-tag.ai {
+  color: #9cc8f0;
+  border-color: #4a6a8a;
+}
+
+.ol-remove {
+  margin-left: auto;
+  padding: 0 6px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  background: transparent;
+  border: 1px solid #3a3f4a;
+  color: var(--ink-dim);
+}
+
 .ol-seat.empty {
   background: transparent;
   border: 1px dashed #3a3f4a;

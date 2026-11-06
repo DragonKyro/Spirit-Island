@@ -38,6 +38,8 @@ export interface Decision {
   focus?: string[];
   /** a card the UI should show while deciding (e.g. the Fear Card being revealed) */
   show?: { kind: 'powers' | 'fears' | 'blights'; id: string };
+  /** top-level menus (not part of resolving an effect): Growth choice, card plays, Power phase */
+  menu?: 'growth' | 'play' | 'power';
 }
 
 export interface Answer {
@@ -60,6 +62,7 @@ export interface ChooseOpts {
   /** ask even when only one option exists */
   always?: boolean;
   show?: Decision['show'];
+  menu?: Decision['menu'];
 }
 
 /** Ask `owner` to pick one option. Auto-picks when only one option exists (unless `always`). */
@@ -80,6 +83,7 @@ export function* choose(
     source: opts.source ?? gs.activity ?? undefined,
     focus: opts.focus,
     show: opts.show,
+    menu: opts.menu,
   };
   const ans = yield [dec];
   return ans.k;

@@ -299,6 +299,13 @@ details > summary.cards-label { cursor: pointer; }
 .ob-undo { background: #3d3418; border-radius: 6px; padding: 6px 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .online-bar button.small { padding: 3px 10px; font-size: 0.85rem; align-self: flex-start; }
 
+/* AI */
+.seat-kind { padding: 3px 10px; font-size: 0.85rem; }
+.seat-kind.is-ai { border-color: #7fb0e0; color: #bcdcff; }
+.dp-suggest { float: right; margin-top: -2px; }
+.hinted { border-color: #7fd17f !important; box-shadow: 0 0 0 2px #7fd17f66; }
+.hinted::after { content: '  ← AI suggests'; color: #9fe39f; font-size: 0.75rem; }
+
 /* mobile tabs (only on narrow screens) */
 .mobile-tabs { display: none; }
 

@@ -288,6 +288,7 @@ function RoomLobby({ spirits, adversaries, boards, onStart }: OnlineLobbyProps) 
                     mine={seat.uuid === me.uuid}
                     online={online.has(seat.uuid)}
                     spirit={seat.spirit ? spiritById.get(seat.spirit) : undefined}
+                    spirits={spirits}
                     boards={boards}
                     canEditBoard={isHost}
                   />
@@ -308,7 +309,21 @@ function RoomLobby({ spirits, adversaries, boards, onStart }: OnlineLobbyProps) 
                 ) : (
                   <button onClick={() => void net().leaveSeat()}>Leave seat (watch)</button>
                 )}
+                {isHost && (
+                  <button
+                    onClick={() => void net().addAISeat(spirits.find((sp) => !seats.some((s) => s.spirit === sp.id))?.id ?? null)}
+                    disabled={seats.length >= MAX_SEATS}
+                    title="An AI teammate, played on your device"
+                  >
+                    + Add AI player
+                  </button>
+                )}
               </div>
+              {seats.some((s) => s.ai) && (
+                <p className="ol-hint">
+                  AI players are played on {isHost ? 'your' : "the host's"} device (or by the first connected player while the host is away).
+                </p>
+              )}
               {watchers.length > 0 && (
                 <div className="ol-watchers">Watching: {watchers.map((w) => w.name || 'A player').join(', ')}</div>
               )}
@@ -357,10 +372,13 @@ function SeatRow(props: {
   mine: boolean;
   online: boolean;
   spirit: SpiritOption | undefined;
+  spirits: SpiritOption[];
   boards: string[];
   canEditBoard: boolean;
 }) {
-  const { seat, index, lobby, mine, online, spirit, boards, canEditBoard } = props;
+  const { seat, index, lobby, mine, online, spirit, spirits, boards, canEditBoard } = props;
+  // the host runs the AI seats: picks their spirits and can remove them
+  const hostAI = !!seat.ai && canEditBoard;
   const chosenBoards = lobby.settings.boards;
   const board = chosenBoards[index] ?? '';
 
@@ -371,23 +389,50 @@ function SeatRow(props: {
   }
 
   return (
-    <div className={`ol-seat${mine ? ' mine' : ''}`}>
+    <div className={`ol-seat${mine ? ' mine' : ''}${seat.ai ? ' ai' : ''}`}>
       <span className="ol-seat-num">{index + 1}</span>
       <div className="ol-seat-main">
         <span className="ol-seat-name">
-          <span className={`ol-dot ${online ? 'on' : 'off'}`} title={online ? 'Online' : 'Offline'} />
+          {seat.ai ? (
+            <span aria-hidden="true">🤖</span>
+          ) : (
+            <span className={`ol-dot ${online ? 'on' : 'off'}`} title={online ? 'Online' : 'Offline'} />
+          )}
           {seat.name || 'Player'}
+          {seat.ai && <span className="ol-tag ai">AI</span>}
           {mine && <span className="ol-tag">you</span>}
           {seat.uuid === lobby.hostUuid && <span className="ol-tag host">host</span>}
+          {hostAI && (
+            <button className="ol-remove" onClick={() => void net().removeAISeat(seat.uuid)} title={`Remove ${seat.name}`} aria-label={`Remove ${seat.name}`}>
+              ✕
+            </button>
+          )}
         </span>
         <span className="ol-seat-spirit">
-          {seat.spirit ? (
+          {hostAI ? (
+            <>
+              <span className="ol-swatch" style={{ background: spirit?.color ?? 'var(--ink-dim)' }} />
+              <select
+                className="ol-select ol-small"
+                aria-label={`Spirit for ${seat.name}`}
+                value={seat.spirit ?? ''}
+                onChange={(e) => void net().chooseAISpirit(seat.uuid, e.target.value || null)}
+              >
+                <option value="">Choose a spirit…</option>
+                {spirits.map((sp) => (
+                  <option key={sp.id} value={sp.id} disabled={sp.id !== seat.spirit && lobby.seats.some((s) => s.spirit === sp.id)}>
+                    {sp.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : seat.spirit ? (
             <>
               <span className="ol-swatch" style={{ background: spirit?.color ?? 'var(--ink-dim)' }} />
               {spirit?.name ?? seat.spirit}
             </>
           ) : (
-            <em>choosing a spirit…</em>
+            <em>{seat.ai ? 'no spirit yet' : 'choosing a spirit…'}</em>
           )}
         </span>
       </div>

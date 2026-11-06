@@ -543,3 +543,57 @@ describe('leaving and rejoining', () => {
     ]);
   });
 });
+
+describe('AI seats', () => {
+  it('the host adds AI players, picks their spirits and removes them; guests cannot', async () => {
+    const { host, code } = await hostRoom();
+    const gus = await joinAs('guest-uuid', 'Gus', code);
+    await host.net().chooseSpirit('river');
+    await host.net().addAISeat('river'); // River is taken: added without a spirit
+    await host.net().addAISeat('earth');
+    await gus.net().addAISeat('lightning'); // not the host: ignored
+    await flush();
+    const seats = host.net().lobby!.seats;
+    expect(seats.map((s) => [s.name, s.spirit, !!s.ai])).toEqual([
+      ['Hana', 'river', false],
+      ['Gus', null, false],
+      ['AI 1', null, true],
+      ['AI 2', 'earth', true],
+    ]);
+    expect(seats[2]!.uuid).toMatch(/^ai-/);
+    await host.net().chooseAISpirit(seats[2]!.uuid, 'earth');
+    await flush();
+    expect(host.net().error).toMatch(/already taken by AI 2/);
+    await host.net().chooseAISpirit(seats[2]!.uuid, 'shadows');
+    await gus.net().chooseAISpirit(seats[3]!.uuid, null); // not the host: ignored
+    await flush();
+    expect(spirits(gus)).toEqual(['river', null, 'shadows', 'earth']);
+    await host.net().addAISeat(null);
+    expect(host.net().error).toMatch(/table is full/);
+    await host.net().removeAISeat(seats[2]!.uuid);
+    await host.net().removeAISeat('guest-uuid'); // not an AI seat: ignored
+    await flush();
+    expect(seatNames(gus)).toEqual(['Hana', 'Gus', 'AI 2']);
+  });
+
+  it('AI seats are never offline, need a person at the table, and are played by the host (or the first person here)', async () => {
+    const { lobbyStartProblem, offlineSeats, aiRunnerUuid } = await import('../../src/store/networkStore');
+    const lobby: LobbyState = {
+      hostUuid: 'h',
+      seats: [
+        { uuid: 'h', name: 'Hana', spirit: 'river' },
+        { uuid: 'g', name: 'Gus', spirit: 'earth' },
+        { uuid: 'ai-1', name: 'AI 1', spirit: 'shadows', ai: true },
+      ],
+      settings: { adversary: '', adversaryLevel: 0, boards: [] },
+      match: null,
+    };
+    expect(lobbyStartProblem(lobby)).toBeNull();
+    expect(lobbyStartProblem({ ...lobby, seats: [lobby.seats[2]!] })).toMatch(/At least one person/);
+    expect(offlineSeats(lobby.seats, [{ uuid: 'h', name: 'Hana' }]).map((s) => s.name)).toEqual(['Gus']);
+    expect(aiRunnerUuid(lobby, [{ uuid: 'g', name: 'Gus' }, { uuid: 'h', name: 'Hana' }])).toBe('h');
+    expect(aiRunnerUuid(lobby, [{ uuid: 'g', name: 'Gus' }])).toBe('g');
+    expect(aiRunnerUuid(lobby, [])).toBeNull();
+    expect(aiRunnerUuid({ ...lobby, seats: lobby.seats.slice(0, 2) }, [{ uuid: 'h', name: 'Hana' }])).toBeNull();
+  });
+});
