@@ -14,6 +14,7 @@ describe.skipIf(!process.env.AI_BENCH)('AI benchmark (solo, no adversary)', () =
     if (process.env.AI_DEEP === '0') DEEP.targets = false;
     if (process.env.AI_DEEP_ALL === '0') DEEP.all = false;
     if (process.env.AI_HORIZON) DEEP.horizon = Number(process.env.AI_HORIZON);
+    if (process.env.AI_SAMPLES) DEEP.samples = Number(process.env.AI_SAMPLES);
     const rows: string[] = [];
     const t0 = performance.now();
     let wins = 0;

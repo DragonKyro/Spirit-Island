@@ -129,6 +129,7 @@ export function createState(setup: GameSetup): GameState {
     nextId: 1,
     log: [],
     activity: null,
+    activityId: null,
     pending: [],
   };
 
@@ -187,7 +188,7 @@ export function* adversarySetup(gs: GameState): Eff {
       if (!cands.length) continue;
       const fewest = Math.min(...cands.map(invaderCount));
       const tied = cands.filter((s) => invaderCount(s) === fewest);
-      const k = yield* choose(gs, -1, 'Royal Backing: add 1 Town to which land (fewest Invaders)?', tied.map((s) => ({ key: s.id, label: landName(s), space: s.id })), { source: 'Royal Backing' });
+      const k = yield* choose(gs, -1, 'Royal Backing: add 1 Town to which land (fewest Invaders)?', tied.map((s) => ({ key: s.id, label: landName(s), space: s.id })), { source: 'Royal Backing', kind: 'invaderAdd', sourceId: 'rule:royal-backing' });
       addPieces(gs, space(gs, k), 'town', 1, 'Royal Backing');
     }
   }
@@ -201,7 +202,7 @@ export function* placeStartingPresence(gs: GameState, s: SpiritState): Eff {
     log(gs, `${s.name}: ${n} starting Presence in ${landName(sp)}`);
   };
   const pick = function* (prompt: string, cands: Space[]): Eff<Space> {
-    const k = yield* choose(gs, s.index, prompt, cands.map((c) => ({ key: c.id, label: landName(c), space: c.id })), { source: 'Setup' });
+    const k = yield* choose(gs, s.index, prompt, cands.map((c) => ({ key: c.id, label: landName(c), space: c.id })), { source: 'Setup', kind: 'presenceAdd', sourceId: 'rule:setup' });
     return space(gs, k);
   };
   switch (s.id) {

@@ -26,14 +26,23 @@ function step(game: Game, ans?: Answer): void {
       gs.result = e.result;
       gs.phase = 'GAME_OVER';
       gs.pending = [];
-      gs.activity = null;
+      gs.activity = gs.activityId = null;
       log(gs, e.result.kind === 'DEFEAT' ? `DEFEAT — ${e.result.reason}` : `${e.result.kind === 'SACRIFICE_VICTORY' ? 'SACRIFICE VICTORY' : 'VICTORY'} — ${e.result.reason}`, 0);
     } else throw e;
   }
 }
 
-export function newGame(setup: GameSetup): Game {
+export interface GameOpts {
+  /** no game log (simulations, training): same play, less work */
+  quiet?: boolean;
+}
+
+export function newGame(setup: GameSetup, opts: GameOpts = {}): Game {
   const gs = createState(setup);
+  if (opts.quiet) {
+    gs.quiet = true;
+    gs.log = [];
+  }
   const game: Game = { setup, gs, gen: gameLoop(gs), answers: [] };
   step(game);
   return game;
@@ -64,8 +73,8 @@ export interface SeatedAnswer extends Answer {
   s?: number;
 }
 
-export function replay(setup: GameSetup, answers: readonly SeatedAnswer[]): Game {
-  const game = newGame(setup);
+export function replay(setup: GameSetup, answers: readonly SeatedAnswer[], opts: GameOpts = {}): Game {
+  const game = newGame(setup, opts);
   for (const a of answers) applyAnswer(game, a, a.s);
   return game;
 }

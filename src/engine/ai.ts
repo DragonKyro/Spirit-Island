@@ -3,9 +3,11 @@
 // Most decisions are made by one-step lookahead: for each option, replay the game
 // to this point, apply the option, auto-finish the rest of the current action with
 // quick rules (`quickPick`), and score the resulting position (`evaluate`). Because
-// the engine is deterministic and replays fast (~13µs per logged answer), this works
-// uniformly for every card and rule. Menus where the payoff is far away (which cards
-// to play, which card to draft) use rules of thumb instead (`cardValue`).
+// the engine is deterministic and replays fast, this works uniformly for every card
+// and rule. Growth, card plays, targets and (with DEEP.all) every other choice play the
+// rest of the turn out instead (`rolloutChoose`). Simulations never peek: each starts
+// from a quiet replay whose hidden information (deck orders, unflipped Blight Card) is
+// re-dealt from public facts (`simFrom`, hidden.ts).
 
 import { CARD_EFFECTS } from './cards';
 import { CARDS } from './cardData';
@@ -14,6 +16,7 @@ import type { Decision, Eff, Option } from './decide';
 import { tiersMet } from './innates';
 import { applyAnswer, replay } from './game';
 import type { Game } from './game';
+import { determinize, publicSeed } from './hidden';
 import { cardPlays, distancesFrom, elementsOf, energyIncome, landTargets, presenceLands } from './ops';
 import { matchesCard } from './setup';
 import { SPIRITS } from './spiritData';
@@ -352,6 +355,17 @@ function pickElement(s: SpiritState, opts: Option[]): string {
 
 // ─── Lookahead ────────────────────────────────────────────────────────────────
 
+/**
+ * A private copy of the game at decision `dec` to simulate on: quiet, with hidden
+ * information re-dealt. The sampled future depends only on public facts, and is the
+ * same for every option of one decision, so options are compared on equal terms.
+ */
+function simFrom(game: Game, dec: Decision, sample = 0): Game {
+  const sim = replay(game.setup, game.answers, { quiet: true });
+  determinize(sim.gs, publicSeed(game.answers.length, dec.id, sample));
+  return sim;
+}
+
 /** Answer non-menu decisions with quick rules until a menu (or the game end) is reached. */
 function complete(sim: Game, maxSteps = 120): void {
   for (let i = 0; i < maxSteps; i++) {
@@ -375,7 +389,7 @@ function lookahead(game: Game, dec: Decision): { key: string; scores: Record<str
   let best = cands[0].key;
   let bestV = -Infinity;
   for (const o of cands) {
-    const sim = replay(game.setup, game.answers);
+    const sim = simFrom(game, dec);
     if (!applyAnswer(sim, { d: dec.id, k: o.key })) continue;
     complete(sim);
     // tie-breaks: act rather than pass; aim at lands that actually hold Invaders
@@ -451,17 +465,26 @@ function rolloutChoose(game: Game, dec: Decision, keys: string[], turns = 1): st
   let best = keys[0];
   let bestV = -Infinity;
   for (const k of keys) {
-    const sim = replay(game.setup, game.answers);
-    if (!applyAnswer(sim, { d: dec.id, k })) continue;
-    for (let t = 0; t < turns && sim.gs.result.kind === 'IN_PROGRESS'; t++) {
-      rolloutTurn(sim);
-      if (t + 1 < turns) {
-        // step into the next turn's Growth so the next rollout covers that whole turn
-        const g = sim.gs.pending.find((d) => d.menu === 'growth');
-        if (g) applyAnswer(sim, { d: g.id, k: fastPolicy(sim.gs, g) });
+    // average over a few sampled futures (the same ones for every option)
+    let v = 0;
+    let ok = true;
+    for (let smp = 0; smp < DEEP.samples && ok; smp++) {
+      const sim = simFrom(game, dec, smp);
+      if (!applyAnswer(sim, { d: dec.id, k })) {
+        ok = false;
+        break;
       }
+      for (let t = 0; t < turns && sim.gs.result.kind === 'IN_PROGRESS'; t++) {
+        rolloutTurn(sim);
+        if (t + 1 < turns) {
+          // step into the next turn's Growth so the next rollout covers that whole turn
+          const g = sim.gs.pending.find((d) => d.menu === 'growth');
+          if (g) applyAnswer(sim, { d: g.id, k: fastPolicy(sim.gs, g) });
+        }
+      }
+      v += evaluate(sim.gs) / DEEP.samples;
     }
-    const v = evaluate(sim.gs);
+    if (!ok) continue;
     if (v > bestV) {
       bestV = v;
       best = k;
@@ -473,7 +496,7 @@ function rolloutChoose(game: Game, dec: Decision, keys: string[], turns = 1): st
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 /** Search options (the benchmark can flip these). */
-export const DEEP = { targets: true, all: true, horizon: 1 };
+export const DEEP = { targets: true, all: true, horizon: 1, samples: 1 };
 
 /** Per-game memory: Powers the AI decided not to use this phase (so it stops re-opening them). */
 const declined = new Map<string, Set<string>>();
@@ -559,6 +582,14 @@ function planPlay(gs: GameState, s: SpiritState, opts: Option[]): string {
 
 // ─── Simulated card value ─────────────────────────────────────────────────────
 
+/** A copy of the state to try an effect on: no log (copying it is the slow part), hidden information re-dealt. */
+function privateCopy(g: GameState): GameState {
+  const c = structuredClone({ ...g, log: [], pending: [] });
+  c.quiet = true;
+  determinize(c, publicSeed(g.nextId, g.turn));
+  return c;
+}
+
 /** Run an effect generator on a private copy of the state, answering with quick rules. */
 function runEffect(gen: Eff, g2: GameState): void {
   let r = gen.next();
@@ -571,7 +602,7 @@ function runEffect(gen: Eff, g2: GameState): void {
 
 /** For Slow Powers: judge against the Ravage that comes after this Invader Phase. */
 function asNextTurn(g: GameState): GameState {
-  const c = structuredClone(g);
+  const c = privateCopy(g);
   c.invader.ravage = c.invader.build;
   c.invader.build = [];
   return c;
@@ -591,8 +622,7 @@ export function playValue(gs: GameState, s: SpiritState, id: string): number {
   for (const e of c.elements) after[e] = (after[e] ?? 0) + 1;
   let best = -Infinity;
   const tryOne = (setup: (g2: GameState, ctx: Ctx2) => void) => {
-    const g2 = structuredClone(base0);
-    g2.pending = [];
+    const g2 = base0 === gs ? privateCopy(base0) : structuredClone(base0);
     const s2 = g2.spirits[s.index];
     s2.played = [...s2.played, id];
     const ctx: Ctx2 = { gs: g2, self: s2, source: c.name, power: { id, kind: 'card' }, dreamed: new Set(), dreamDmg: new Map() };

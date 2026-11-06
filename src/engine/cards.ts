@@ -326,7 +326,7 @@ export const CARD_EFFECTS: Record<string, CardEffect> = {
     const t = ctx.targetSpirit!;
     const dests = presenceDestinations(ctx.gs, t, 1);
     if (!dests.length) return;
-    const k = yield* choose(ctx.gs, t.index, 'Gift of Proliferation: add 1 Presence (Range 1)', dests.map((sp) => ({ key: sp.id, label: landName(sp), space: sp.id })));
+    const k = yield* choose(ctx.gs, t.index, 'Gift of Proliferation: add 1 Presence (Range 1)', dests.map((sp) => ({ key: sp.id, label: landName(sp), space: sp.id })), { kind: 'presenceAdd' });
     const src = yield* choosePresenceSource(ctx.gs, t, false, space(ctx.gs, k));
     if (src) placePresence(ctx.gs, t, src, space(ctx.gs, k), ctx.source);
   },
@@ -599,7 +599,7 @@ export const CARD_EFFECTS: Record<string, CardEffect> = {
     // The user gains one of the cards the target did not keep (taking it back out of the discard).
     const left = res.rest.filter((id) => gs.minorDiscard.includes(id) || gs.majorDiscard.includes(id));
     if (left.length) {
-      const k = yield* choose(gs, ctx.self.index, 'Entwined Power: gain one of the cards they did not keep', left.map((id) => ({ key: id, label: CARDS[id].name, card: id })), { always: true });
+      const k = yield* choose(gs, ctx.self.index, 'Entwined Power: gain one of the cards they did not keep', left.map((id) => ({ key: id, label: CARDS[id].name, card: id })), { always: true, kind: 'cardKeep' });
       const pile = CARDS[k].type === 'minor' ? gs.minorDiscard : gs.majorDiscard;
       pile.splice(pile.indexOf(k), 1);
       ctx.self.hand.push(k);
@@ -717,7 +717,7 @@ export const CARD_EFFECTS: Record<string, CardEffect> = {
     const near = distancesFrom(gs, presenceLands(gs, ctx.self), 2);
     const dests = gs.spaces.filter((s) => near.has(s.id) && presenceAllowed(gs, t, s));
     if (!dests.length) return;
-    const k = yield* choose(gs, t.index, 'Blazing Renewal: return up to 2 destroyed Presence into which land?', dests.map((s) => ({ key: s.id, label: landName(s), space: s.id })));
+    const k = yield* choose(gs, t.index, 'Blazing Renewal: return up to 2 destroyed Presence into which land?', dests.map((s) => ({ key: s.id, label: landName(s), space: s.id })), { kind: 'presenceAdd' });
     const sp = space(gs, k);
     const n = Math.min(2, t.destroyed);
     for (let i = 0; i < n; i++) {
@@ -792,7 +792,7 @@ export const CARD_EFFECTS: Record<string, CardEffect> = {
       if (!dests.length) break;
       const fresh = dests.filter((d) => !used.has(d.id));
       const pool = fresh.length ? fresh : dests;
-      const k = yield* choose(gs, ctx.self.index, `Push an Explorer from ${sp.id} (spread them out)`, pool.map((s) => ({ key: s.id, label: landName(s), space: s.id })), { focus: [sp.id] });
+      const k = yield* choose(gs, ctx.self.index, `Push an Explorer from ${sp.id} (spread them out)`, pool.map((s) => ({ key: s.id, label: landName(s), space: s.id })), { focus: [sp.id], kind: 'pushTo', about: { space: sp.id, piece: 'explorer' } });
       used.add(k);
       yield* movePiece(ctx, gs, sp, space(gs, k), sp.pieces.find((p) => p.kind === 'explorer')!);
     }

@@ -39,7 +39,7 @@ src/
     rng.ts                # seeded PRNG (state lives in GameState)
     island.ts             # boards A–D (terrain, adjacency, setup pieces, joinable sides) + 1–4 board layouts
     state.ts              # GameState / Space / SpiritState types + read-only queries
-    decide.ts             # Decision / Option / Answer, choose(), parallel(), GameOver
+    decide.ts             # Decision (kind, sourceId, about) / Option / Answer, choose(), parallel(), GameOver
     ops.ts                # primitives: damage, destroy, push/gather, blight+cascade, presence, fear, cards, targeting, win/loss
     cardData.ts           # Power Card data (cost, speed, elements, range/target, text)
     cards.ts              # Power Card effects keyed by card id
@@ -49,8 +49,10 @@ src/
     adversary.ts          # adversary levels: difficulty, fear deck sizes, deck orders, text
     setup.ts              # createState(), invader deck, adversary setup, starting Presence
     phases.ts             # sequence of play: Spirit → Fast → Invader → Slow → Time Passes
-    game.ts               # driver: newGame / applyAnswer / replay / score
-    ai.ts                 # heuristic AI: evaluate(), lookahead via replay, simulated card values, quickPick
+    game.ts               # driver: newGame / applyAnswer / replay (optionally quiet: no log) / score
+    hidden.ts             # hidden information: determinize() re-deals decks etc. from public facts
+    observe.ts            # neural-AI input: observe(gs, decision) → token blocks from public information
+    ai.ts                 # heuristic AI: evaluate(), rollouts / lookahead on determinized replays, simulated card values
   net/                    # Firebase room transport (+ in-memory fake for tests); game-agnostic
   store/
     gameStore.ts          # engine wrapper: local save/undo, AI seats (local + online), online apply via action log
@@ -78,7 +80,8 @@ tests/engine, tests/net
 ## Architecture Conventions
 
 - **Engine is pure and deterministic.** A game = `GameSetup` (incl. seed) + ordered `Answer[]`. Never use `Math.random`, `Date`, or iteration over unordered sources in `src/engine/`; all randomness goes through `gs.rng`. This is what makes undo, saves and online sync work.
-- **Choices are generators.** Any logic that may need a player decision is a generator (`Eff<T>`) and asks via `choose()` / `confirm()` (which auto-pick when only one option exists). Never block on input any other way. Decisions carry `owner` (spirit index, or -1 for "any player").
+- **Choices are generators.** Any logic that may need a player decision is a generator (`Eff<T>`) and asks via `choose()` / `confirm()` (which auto-pick when only one option exists). Never block on input any other way. Decisions carry `owner` (spirit index, or -1 for "any player"), a `kind` (`DECISION_KINDS`; inferred from the options unless the call site passes one — pass it when the meaning isn't obvious from the options, e.g. `cascade` vs `presenceAdd`), `sourceId` (from `gs.activityId` while a Power / Fear Card resolves, else pass `rule:<name>`) and `about` (land acted on, piece moving, step n of max). Put machine-readable facts on `Option` (`space`, `card`, `piece`, `element`, `spirit`), never only in labels.
+- **Hidden information stays hidden.** `GameState` holds deck orders, removed and face-down cards, the unflipped Blight Card and the RNG; no player knows them. AI search must simulate on `determinize()`d copies (seeded from public facts only), and `observe()` must only read public information (tests check observations don't change when hidden parts are re-dealt). Option keys can carry hidden ids (Spirits May Yet Dream): don't read keys as features.
 - **Invalid answers are ignored**, never thrown: `applyAnswer` checks the decision id, the option key and (online) the seat, so stale answers are dropped identically on every device.
 - **Game over is an exception.** `checkEnd()` throws `GameOver` (victory / defeat / sacrifice victory) from wherever a condition is met; the driver catches it.
 - **Card / spirit data and effects are split** (`cardData.ts` vs `cards.ts`, `spiritData.ts` vs `innates.ts`) to avoid import cycles. Every card id must have an effect (enforced by `tests/engine/coverage.test.ts`).
@@ -101,6 +104,7 @@ tests/engine, tests/net
 ## When adding features
 
 - Engine changes need a vitest test; run the fuzz suite (`tests/engine/fuzz.test.ts`) — it plays full random games for every Spirit, adversary and player count and checks replay determinism.
-- AI: `ai.ts` never mutates a live game — it replays copies (`replay(setup, answers)`) or `structuredClone`s state. Top-level menus are marked with `Decision.menu` so lookahead knows where an action ends. Decisions are scored by rollouts to the next turn's Growth (`DEEP` flags; `fastPolicy` plays the rollout). Weights are `W` (per-Spirit overrides in `SPIRIT_W`). Re-run the opt-in benchmark after changing the AI: `AI_BENCH=1 npx vitest run tests/engine/aiBench.test.ts` (env: `AI_SEEDS`, `AI_SPIRITS`, `AI_ADV`/`AI_LVL`, `AI_W`/`AI_SW` JSON weight overrides, `AI_DEEP=0`, `AI_DEEP_ALL=0`, `AI_HORIZON`); about 4 minutes for 12 seeds.
+- AI: `ai.ts` never mutates a live game — it simulates on quiet, determinized replays (`simFrom`) or log-free copies (`privateCopy`). Top-level menus are marked with `Decision.menu` so lookahead knows where an action ends. Decisions are scored by rollouts to the next turn's Growth (`DEEP` flags; `fastPolicy` plays the rollout). Weights are `W` (per-Spirit overrides in `SPIRIT_W`). Re-run the opt-in benchmark after changing the AI: `AI_BENCH=1 npx vitest run tests/engine/aiBench.test.ts` (env: `AI_SEEDS`, `AI_SPIRITS`, `AI_ADV`/`AI_LVL`, `AI_W`/`AI_SW` JSON weight overrides, `AI_DEEP=0`, `AI_DEEP_ALL=0`, `AI_HORIZON`, `AI_SAMPLES`); about 2 minutes for 12 seeds.
+- Simulations and training should use `newGame(setup, { quiet: true })` / `replay(…, { quiet: true })`: same play, no log (about half the time). Bump `OBS_VERSION` in observe.ts when the observation layout or a vocabulary changes.
 - Online AI seats (`Seat.ai`, uuid `ai-…`) are played by one device, `aiRunnerUuid(lobby, presence)` (the host, else the first connected person); it sends their answers with the AI seat as `s`. Duplicate sends are harmless (stale answers are dropped). Undo votes count only human seats (`humanSeats`) and undo back to the last human move.
 - Bump `GameSetup.v` if saved games / logs from older builds would replay differently.

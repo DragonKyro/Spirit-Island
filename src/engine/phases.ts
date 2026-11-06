@@ -131,6 +131,7 @@ function* growth(gs: GameState, s: SpiritState): Eff {
     always: true,
     source: 'Growth',
     menu: 'growth',
+    sourceId: 'rule:growth',
   });
   const items = [...(g.always ?? []), ...g.options[Number(k)]];
   log(gs, `${s.name} Grows: ${items.map(growthLabel).join(', ')}`);
@@ -139,7 +140,7 @@ function* growth(gs: GameState, s: SpiritState): Eff {
     let idx = 0;
     const distinct = new Set(rest.map(growthLabel)).size > 1;
     if (rest.length > 1 && distinct && rest.some(movesPresence)) {
-      const ik = yield* choose(gs, s.index, 'Growth: what next?', rest.map((it, i) => ({ key: String(i), label: growthLabel(it) })), { source: 'Growth' });
+      const ik = yield* choose(gs, s.index, 'Growth: what next?', rest.map((it, i) => ({ key: String(i), label: growthLabel(it) })), { source: 'Growth', kind: 'growthOrder', sourceId: 'rule:growth' });
       idx = Number(ik);
     }
     const [it] = rest.splice(idx, 1);
@@ -159,7 +160,7 @@ function* growthItem(gs: GameState, s: SpiritState, it: GrowthItem): Eff {
       for (const ocean of gs.spaces.filter((x) => x.num === 0)) {
         const srcs = adjacent(gs, ocean).filter((x) => presenceOf(x, s.index) > 0);
         if (!srcs.length) continue;
-        const k = yield* choose(gs, s.index, `Gather 1 Presence into the Ocean of board ${ocean.boardName} from…`, srcs.map((x) => ({ key: x.id, label: landName(x), space: x.id })), { source: 'Growth' });
+        const k = yield* choose(gs, s.index, `Gather 1 Presence into the Ocean of board ${ocean.boardName} from…`, srcs.map((x) => ({ key: x.id, label: landName(x), space: x.id })), { source: 'Growth', kind: 'presenceMove', sourceId: 'rule:growth', about: { space: ocean.id } });
         space(gs, k).presence[s.index]--;
         addPresenceTo(gs, s, ocean, 'Gathered');
       }
@@ -168,7 +169,7 @@ function* growthItem(gs: GameState, s: SpiritState, it: GrowthItem): Eff {
       for (const ocean of gs.spaces.filter((x) => x.num === 0 && presenceOf(x, s.index) > 0)) {
         const dests = adjacent(gs, ocean).filter((x) => x.num > 0 && x.coastal);
         if (!dests.length) continue;
-        const k = yield* choose(gs, s.index, `Push 1 Presence from the Ocean of board ${ocean.boardName} to…`, dests.map((x) => ({ key: x.id, label: landName(x), space: x.id })), { source: 'Growth' });
+        const k = yield* choose(gs, s.index, `Push 1 Presence from the Ocean of board ${ocean.boardName} to…`, dests.map((x) => ({ key: x.id, label: landName(x), space: x.id })), { source: 'Growth', kind: 'presenceMove', sourceId: 'rule:growth', about: { space: ocean.id } });
         ocean.presence[s.index]--;
         addPresenceTo(gs, s, space(gs, k), 'Pushed');
       }
@@ -190,6 +191,7 @@ function* playCards(gs: GameState, s: SpiritState): Eff {
       always: true,
       source: 'Play Power Cards',
       menu: 'play',
+      sourceId: 'rule:play-cards',
     });
     if (k === 'done') return;
     if (k === 'reclaim') {
@@ -289,6 +291,7 @@ function* powerPhase(gs: GameState, speed: Speed): Eff {
           options,
           source: speed === 'FAST' ? 'Fast Powers' : 'Slow Powers',
           menu: 'power',
+          kind: 'power',
         };
         cache.set(s.index, { sig, dec });
         decs.push(dec);
@@ -321,18 +324,19 @@ export function* resolvePower(gs: GameState, s: SpiritState, speed: Speed, key: 
   const el = elementsOf(s);
   const target = isCard ? CARDS[id].target : INNATES[id].target;
   gs.activity = `${s.name}: ${name}${repeat ? ' (Repeat)' : ''}`;
+  gs.activityId = `${isCard ? 'card' : 'innate'}:${id}`;
   const ctx: Ctx = ctxFor(gs, s, name, { power: { id, kind: isCard ? 'card' : 'innate' }, dreamed: new Set(), dreamDmg: new Map(), isRepeat: !!repeat });
   if (target.kind === 'land') {
     const t = yield* chooseLandTarget(gs, s, target.range, target.filter, name, isCard ? cardRangeBonus(id, el) : 0);
     if (!t) {
-      gs.activity = null;
+      gs.activity = gs.activityId = null;
       return false;
     }
     ctx.target = t;
   } else {
     const t = yield* chooseSpiritTarget(gs, s, target.who, name);
     if (!t) {
-      gs.activity = null;
+      gs.activity = gs.activityId = null;
       return false;
     }
     ctx.targetSpirit = t;
@@ -351,7 +355,7 @@ export function* resolvePower(gs: GameState, s: SpiritState, speed: Speed, key: 
   log(gs, `${s.name} resolves ${name}${repeat ? ' (Repeat)' : ''}${ctx.target ? ` on ${landName(ctx.target)}` : ctx.targetSpirit ? ` targeting ${ctx.targetSpirit.name}` : ''}`, 0);
   if (isCard) yield* CARD_EFFECTS[id](ctx, el);
   else yield* INNATE_EFFECTS[id](ctx, tiersMet(id, el), el);
-  gs.activity = null;
+  gs.activity = gs.activityId = null;
   checkEnd(gs);
   return true;
 }
@@ -367,6 +371,7 @@ function* invaderPhase(gs: GameState): Eff {
   if (gs.blight.flipped) {
     const info = BLIGHT_CARD_INFO[gs.blight.card];
     log(gs, `Blighted Island — ${info.name}: ${info.text}`, 0);
+    gs.activityId = `blight:${gs.blight.card}`;
     for (const s of gs.spirits) {
       if (gs.blight.card === 'downward-spiral') yield* destroyOnePresence(gs, s, 'Downward Spiral');
       else {
@@ -378,6 +383,7 @@ function* invaderPhase(gs: GameState): Eff {
         else yield* destroyOnePresence(gs, s, 'Memory Fades to Dust');
       }
     }
+    gs.activityId = null;
   }
 
   // 2. Fear
@@ -386,13 +392,14 @@ function* invaderPhase(gs: GameState): Eff {
     const card = FEAR_BY_ID[id];
     const tl = gs.fear.terrorLevel;
     gs.activity = `Fear Card: ${card.name}`;
-    yield* choose(gs, -1, `Fear Card — ${card.name} (Terror Level ${tl}): ${card.levels[tl - 1]}`, [{ key: 'ok', label: 'Resolve' }], { always: true, source: 'Fear', show: { kind: 'fears', id } });
+    gs.activityId = `fear:${id}`;
+    yield* choose(gs, -1, `Fear Card — ${card.name} (Terror Level ${tl}): ${card.levels[tl - 1]}`, [{ key: 'ok', label: 'Resolve' }], { always: true, source: 'Fear', show: { kind: 'fears', id }, kind: 'fear' });
     log(gs, `Fear Card: ${card.name} — ${card.levels[tl - 1]}`, 0);
     yield* card.effect(gs, tl);
     gs.fear.discard.push(id);
     gs.fear.revealed = gs.fear.revealed.filter((r) => r !== id);
     gs.turnFlags.fearResolvedThisTurn++;
-    gs.activity = null;
+    gs.activity = gs.activityId = null;
     checkEnd(gs);
   }
 
@@ -444,6 +451,8 @@ function* chokeTheLand(gs: GameState, sp: Space, action: string): Eff<boolean> {
   const g = spiritById(gs, 'green');
   if (!g || !isSacredSite(gs, g, sp)) return false;
   const yes = yield* confirm(gs, g.index, `Choke the Land with Green: destroy 1 of your Presence in ${sp.id} to prevent this ${action}?`, `Prevent ${action}`, 'Allow it', {
+    sourceId: 'rule:choke-the-land-with-green',
+    about: { space: sp.id },
     source: 'Choke the Land with Green',
     focus: [sp.id],
   });
@@ -477,7 +486,7 @@ export function* ravage(gs: GameState, sp: Space): Eff {
     if (added && sweden && gs.setup.adversaryLevel >= 5) {
       const adj = adjacent(gs, sp).filter((x) => x.num > 0 && townCity(x) === 0);
       if (adj.length) {
-        const k = yield* choose(gs, -1, 'Mining Rush: add 1 Town to an adjacent land without Town / City', adj.map((x) => ({ key: x.id, label: landName(x), space: x.id })), { source: 'Mining Rush' });
+        const k = yield* choose(gs, -1, 'Mining Rush: add 1 Town to an adjacent land without Town / City', adj.map((x) => ({ key: x.id, label: landName(x), space: x.id })), { source: 'Mining Rush', kind: 'invaderAdd', sourceId: 'rule:mining-rush' });
         addPieces(gs, space(gs, k), 'town', 1, 'Mining Rush');
       }
     }
@@ -560,12 +569,12 @@ function* escalation(gs: GameState): Eff {
     if (adv === 'prussia') {
       const cands = bl.filter((x) => count(x, 'town') === 0);
       if (!cands.length) continue;
-      const k = yield* choose(gs, -1, `Land Rush: add 1 Town to a land without Town (board ${gs.island.boards[b]})`, cands.map((x) => ({ key: x.id, label: landName(x), space: x.id })), { source: 'Escalation: Land Rush' });
+      const k = yield* choose(gs, -1, `Land Rush: add 1 Town to a land without Town (board ${gs.island.boards[b]})`, cands.map((x) => ({ key: x.id, label: landName(x), space: x.id })), { source: 'Escalation: Land Rush', kind: 'invaderAdd', sourceId: 'rule:land-rush' });
       addPieces(gs, space(gs, k), 'town', 1, 'Land Rush');
     } else {
       const most = Math.max(...bl.map(townCity));
       const cands = bl.filter((x) => townCity(x) === most);
-      const k = yield* choose(gs, -1, `Building Boom: Build in the land with the most Town / City (board ${gs.island.boards[b]})`, cands.map((x) => ({ key: x.id, label: landName(x), space: x.id })), { source: 'Escalation: Building Boom' });
+      const k = yield* choose(gs, -1, `Building Boom: Build in the land with the most Town / City (board ${gs.island.boards[b]})`, cands.map((x) => ({ key: x.id, label: landName(x), space: x.id })), { source: 'Escalation: Building Boom', kind: 'invaderAdd', sourceId: 'rule:building-boom' });
       yield* build(gs, space(gs, k), false);
     }
   }
@@ -580,7 +589,7 @@ function* timePasses(gs: GameState): Eff {
       const k = yield* choose(gs, s.index, 'Gift of Constancy: Reclaim 1 played card instead of discarding it?', [
         ...s.played.map((id) => ({ key: id, label: CARDS[id].name, card: id })),
         { key: 'none', label: 'Discard all', done: true },
-      ], { always: true, source: 'Gift of Constancy' });
+      ], { always: true, source: 'Gift of Constancy', kind: 'cardReclaim', sourceId: 'card:gift-of-constancy' });
       if (k === 'none') break;
       s.played.splice(s.played.indexOf(k), 1);
       s.hand.push(k);

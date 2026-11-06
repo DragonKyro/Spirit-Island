@@ -15,7 +15,7 @@ self.onmessage = (e: MessageEvent<Request>) => {
   const { id, setup, answers, d } = e.data;
   let k: string | null = null;
   try {
-    const g = replay(setup, answers);
+    const g = replay(setup, answers, { quiet: true });
     const dec = g.gs.pending.find((x) => x.id === d);
     if (dec) k = aiChoose(g, dec);
   } catch (err) {

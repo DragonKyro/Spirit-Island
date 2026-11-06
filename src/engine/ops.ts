@@ -62,6 +62,7 @@ const dreams = (ctx: Ctx | null | undefined): ctx is Ctx => !!ctx && !!ctx.power
 // ─── Log ──────────────────────────────────────────────────────────────────────
 
 export function log(gs: GameState, text: string, depth = 1): void {
+  if (gs.quiet) return;
   gs.log.push({ turn: gs.turn, phase: gs.phase, text, depth });
 }
 
@@ -279,6 +280,8 @@ export function* damage(
     const k = yield* choose(gs, owner, `Assign Damage in ${landName(sp)} (${left} left)`, options, {
       source: opts.source ?? ctx?.source,
       focus: [sp.id],
+      kind: 'damage',
+      about: { space: sp.id, n: left },
     });
     const p = targets.find((q) => `${q.kind}:${effDmg(ctx, q)}` === k)!;
     const use = Math.min(left, healthOf(gs, sp, p.kind) - effDmg(ctx, p));
@@ -310,7 +313,7 @@ export function* damageOne(ctx: Ctx, sp: Space, n: number, kinds: readonly Invad
     ctx.self.index,
     `${n} Damage to which Invader?`,
     gr.map((p) => ({ key: pieceKey(p), label: pieceLabel(p), piece: p.kind, dmg: p.dmg, space: sp.id })),
-    { focus: [sp.id] },
+    { focus: [sp.id], kind: 'damage', about: { space: sp.id, n } },
   );
   const p = targets.find((q) => pieceKey(q) === k)!;
   return yield* hit(ctx, ctx.gs, sp, p, n);
@@ -341,7 +344,7 @@ export function* destroyPiece(ctx: Ctx | null, gs: GameState, sp: Space, p: Piec
       if (v.adjacent) {
         const opts = [sp, ...adjacent(gs, sp).filter((s) => s.num > 0)].filter((s) => hasInvaders(s));
         if (opts.length > 1) {
-          const k = yield* choose(gs, avenger.index, 'Vengeance of the Dead: deal 1 Damage in which land?', opts.map((s) => ({ key: s.id, label: landName(s), space: s.id })));
+          const k = yield* choose(gs, avenger.index, 'Vengeance of the Dead: deal 1 Damage in which land?', opts.map((s) => ({ key: s.id, label: landName(s), space: s.id })), { sourceId: 'card:vengeance-of-the-dead' });
           where = space(gs, k);
         } else if (opts.length === 1) where = opts[0];
       }
@@ -363,7 +366,7 @@ function* dreamDestroy(ctx: Ctx, sp: Space, p: Piece): Eff {
   if (p.kind === 'explorer' || p.kind === 'town') {
     const dests = pushDestinations(gs, sp, true);
     if (dests.length) {
-      const k = yield* choose(gs, ctx.self.index, `Push the terrified ${PIECE_LABEL[p.kind]} to…`, dests.map(destOpt), { focus: [sp.id] });
+      const k = yield* choose(gs, ctx.self.index, `Push the terrified ${PIECE_LABEL[p.kind]} to…`, dests.map(destOpt), { focus: [sp.id], kind: 'pushTo', about: { space: sp.id, piece: p.kind } });
       yield* movePiece(ctx, gs, sp, space(gs, k), p);
     }
   }
@@ -445,6 +448,8 @@ export function* movePiece(ctx: Ctx | null, gs: GameState, from: Space, to: Spac
     const ts = spiritById(gs, 'thunderspeaker');
     if (ts && presenceOf(from, ts.index) > 0 && to.num > 0) {
       const go = yield* confirm(gs, ts.index, `Ally of the Dahan: move 1 Presence with the Dahan from ${from.id} to ${to.id}?`, 'Move Presence', 'Stay', {
+        sourceId: 'rule:ally-of-the-dahan',
+        about: { space: from.id },
         source: 'Ally of the Dahan',
         focus: [from.id, to.id],
       });
@@ -464,7 +469,7 @@ export function* drown(ctx: Ctx | null, gs: GameState, sp: Space, p: Piece): Eff
   if (p.kind === 'dahan' && ctx?.saveDahan && ocean && oceanInPlay(gs, sp)) {
     const coastal = lands(gs).filter((s) => s.coastal);
     const opts: Option[] = [{ key: 'drown', label: 'Let it Drown', done: true }, ...coastal.map(destOpt)];
-    const k = yield* choose(gs, ocean.index, 'Tidal Boon: move the Dahan to any Coastal land instead of Drowning it?', opts, { always: true });
+    const k = yield* choose(gs, ocean.index, 'Tidal Boon: move the Dahan to any Coastal land instead of Drowning it?', opts, { always: true, kind: 'pushTo', sourceId: 'card:tidal-boon', about: { space: sp.id, piece: 'dahan' } });
     if (k !== 'drown') {
       sp.pieces.splice(sp.pieces.indexOf(p), 1);
       space(gs, k).pieces.push(p);
@@ -531,10 +536,10 @@ export function* push(
     const gr = groups(cands);
     const options: Option[] = gr.map((p) => ({ key: pieceKey(p), label: `Push ${pieceLabel(p)}`, piece: p.kind, dmg: p.dmg, space: from.id }));
     if (upTo) options.push({ key: 'done', label: moved.length ? 'Done pushing' : 'Push nothing', done: true });
-    const k = yield* choose(gs, ctx.self.index, `${opts.label ?? 'Push'} from ${landName(from)} (${moved.length}/${max})`, options, { focus: [from.id] });
+    const k = yield* choose(gs, ctx.self.index, `${opts.label ?? 'Push'} from ${landName(from)} (${moved.length}/${max})`, options, { focus: [from.id], kind: 'push', about: { space: from.id, n: moved.length, max } });
     if (k === 'done') break;
     const p = cands.find((q) => pieceKey(q) === k)!;
-    const to = space(gs, yield* choose(gs, ctx.self.index, `Push the ${PIECE_LABEL[p.kind]} to…`, dests.map(destOpt), { focus: [from.id] }));
+    const to = space(gs, yield* choose(gs, ctx.self.index, `Push the ${PIECE_LABEL[p.kind]} to…`, dests.map(destOpt), { focus: [from.id], kind: 'pushTo', about: { space: from.id, piece: p.kind } }));
     yield* movePiece(ctx, gs, from, to, p);
     moved.push({ kind: p.kind, to });
   }
@@ -562,7 +567,7 @@ export function* gather(
     }
     if (!options.length) break;
     if (upTo) options.push({ key: 'done', label: n ? 'Done gathering' : 'Gather nothing', done: true });
-    const k = yield* choose(gs, ctx.self.index, `${opts.label ?? 'Gather'} into ${landName(to)} (${n}/${max})`, options, { focus: [to.id] });
+    const k = yield* choose(gs, ctx.self.index, `${opts.label ?? 'Gather'} into ${landName(to)} (${n}/${max})`, options, { focus: [to.id], kind: 'gather', about: { space: to.id, n, max } });
     if (k === 'done') break;
     const [sid, pk] = k.split('|');
     const src = space(gs, sid);
@@ -633,6 +638,9 @@ export function* addBlight(gs: GameState, sp: Space, opts: BlightOpts = {}): Eff
       const k = yield* choose(gs, -1, `Blight cascades from ${sp.id} — choose an adjacent land`, adj.map((s) => ({ ...destOpt(s), hint: s.blight ? `${s.blight} Blight` : undefined })), {
         source: 'Blight Cascade',
         focus: [sp.id],
+        kind: 'cascade',
+        sourceId: 'rule:blight-cascade',
+        about: { space: sp.id },
       });
       yield* addBlight(gs, space(gs, k), { ...opts, why: 'Cascade', fromBox: false });
     }
@@ -665,7 +673,7 @@ export function presenceLands(gs: GameState, s: SpiritState): Space[] {
 export function* destroyOnePresence(gs: GameState, s: SpiritState, why: string, among?: Space[]): Eff<boolean> {
   const where = (among ?? presenceLands(gs, s)).filter((sp) => presenceOf(sp, s.index) > 0);
   if (!where.length) return false;
-  const k = yield* choose(gs, s.index, `${why}: destroy 1 of your Presence`, where.map((sp) => ({ ...destOpt(sp), hint: `${presenceOf(sp, s.index)} Presence` })), { source: why });
+  const k = yield* choose(gs, s.index, `${why}: destroy 1 of your Presence`, where.map((sp) => ({ ...destOpt(sp), hint: `${presenceOf(sp, s.index)} Presence` })), { source: why, kind: 'presenceDestroy' });
   yield* destroyPresenceAt(gs, s, space(gs, k), why);
   return true;
 }
@@ -769,13 +777,14 @@ export function* gainPowerCard(
     deck = (yield* choose(gs, s.index, `${s.name}: gain a Minor or a Major Power?`, [
       { key: 'minor', label: 'Minor Power', hint: `${gs.minorDeck.length} in deck` },
       { key: 'major', label: 'Major Power', hint: 'must Forget a Power Card' },
-    ], { source: opts.source ?? 'Gain Power Card', always: true })) as 'minor' | 'major';
+    ], { source: opts.source ?? 'Gain Power Card', always: true, kind: 'powerDeck' })) as 'minor' | 'major';
   }
   const drawn = drawPowerCards(gs, deck, 4);
   if (!drawn.length) return { kept: null, rest: [], forgot: null };
   const k = yield* choose(gs, s.index, `Choose 1 ${deck === 'minor' ? 'Minor' : 'Major'} Power to keep`, drawn.map((id) => ({ key: id, label: CARDS[id].name, card: id })), {
     source: opts.source ?? 'Gain Power Card',
     always: true,
+    kind: 'cardKeep',
   });
   s.hand.push(k);
   const rest = drawn.filter((id) => id !== k);
@@ -795,7 +804,7 @@ export function* forgetPowerCard(gs: GameState, s: SpiritState, prompt: string, 
   ];
   if (opts.optional) options.push({ key: 'none', label: "Don't Forget", done: true });
   if (!options.length) return null;
-  const k = yield* choose(gs, s.index, prompt, options, { always: true, source: 'Forget a Power' });
+  const k = yield* choose(gs, s.index, prompt, options, { always: true, source: 'Forget a Power', kind: 'cardForget' });
   if (k === 'none') return null;
   const [where, id] = k.split(':') as ['hand' | 'played' | 'discard', string];
   const pile = s[where];
@@ -817,7 +826,7 @@ export function* reclaimOne(gs: GameState, s: SpiritState, why = 'Reclaim One'):
   const k = yield* choose(gs, s.index, `${why}: return 1 card from your discard to hand`, [
     ...s.discard.map((id) => ({ key: id, label: CARDS[id].name, card: id })),
     { key: 'none', label: 'None', done: true },
-  ], { always: true, source: why });
+  ], { always: true, source: why, kind: 'cardReclaim' });
   if (k === 'none') return false;
   s.discard.splice(s.discard.indexOf(k), 1);
   s.hand.push(k);
@@ -914,6 +923,7 @@ export function* chooseLandTarget(gs: GameState, s: SpiritState, r: RangeSpec, f
   const k = yield* choose(gs, s.index, `${source}: choose a target land (${FILTER_LABEL(f)}, Range ${r.n + bonus + s.rangeBonus}${r.sacred ? ' from Sacred Site' : ''})`, options, {
     always: true,
     source,
+    kind: 'targetLand',
   });
   if (k === 'cancel') return null;
   const pick = cands.find((c) => c.sp.id === k)!;
@@ -925,7 +935,7 @@ export function* chooseSpiritTarget(gs: GameState, s: SpiritState, who: 'any' | 
   const cands = gs.spirits.filter((x) => who === 'any' || x !== s || gs.spirits.length === 1);
   const options: Option[] = cands.map((x) => ({ key: String(x.index), label: x === s ? `${x.name} (yourself)` : x.name, spirit: x.index }));
   options.push({ key: 'cancel', label: 'Cancel', done: true });
-  const k = yield* choose(gs, s.index, `${source}: choose a target Spirit`, options, { always: true, source });
+  const k = yield* choose(gs, s.index, `${source}: choose a target Spirit`, options, { always: true, source, kind: 'targetSpirit' });
   if (k === 'cancel') return null;
   return gs.spirits[Number(k)];
 }
@@ -1000,7 +1010,7 @@ export function* choosePresenceSource(gs: GameState, s: SpiritState, viaGrowth: 
     options.push({ key: `move:${sp.id}`, label: `Move 1 from ${landName(sp)}`, space: sp.id });
   }
   if (!options.length) return null;
-  return (yield* choose(gs, s.index, 'Take the Presence from…', options, { source: 'Add Presence' })) as PresenceSource;
+  return (yield* choose(gs, s.index, 'Take the Presence from…', options, { source: 'Add Presence', kind: 'presenceTrack' })) as PresenceSource;
 }
 
 /** Take a Presence from its source and put it on `dest`. */
@@ -1033,6 +1043,7 @@ export function* addPresence(
   }
   const dk = yield* choose(gs, s.index, `${why}: add a Presence${range === 'any' ? '' : ` (Range ${range})`}`, dests.map((sp) => ({ ...destOpt(sp), hint: presenceOf(sp, s.index) ? `${presenceOf(sp, s.index)} here` : undefined })), {
     source: why,
+    kind: 'presenceAdd',
   });
   const dest = space(gs, dk);
   const src = yield* choosePresenceSource(gs, s, !!opts.viaGrowth, dest);

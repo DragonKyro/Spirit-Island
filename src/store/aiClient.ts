@@ -33,7 +33,7 @@ function getWorker(): Worker | null {
 }
 
 function inline(setup: GameSetup, answers: SeatedAnswer[], d: number, quick = false): string | null {
-  const g = replay(setup, answers);
+  const g = replay(setup, answers, { quiet: true });
   const dec = g.gs.pending.find((x) => x.id === d);
   return dec ? (quick ? aiQuickChoose : aiChoose)(g, dec) : null;
 }

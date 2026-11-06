@@ -210,6 +210,13 @@ export interface GameState {
   log: LogEntry[];
   /** what is currently being resolved (for UI headers) */
   activity: string | null;
+  /** the same as an id (`card:<id>`, `innate:<id>`, `fear:<id>`, `blight:<id>`), stamped on Decisions as `sourceId` */
+  activityId: string | null;
+  /**
+   * Skip the game log (simulations and training). A runtime switch, not part of the
+   * setup: the log is never read by the rules, so a quiet game plays out identically.
+   */
+  quiet?: boolean;
   /** pending decisions (mirrors the driver, for convenience) */
   pending: Decision[];
 }

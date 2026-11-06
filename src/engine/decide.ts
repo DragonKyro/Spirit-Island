@@ -26,6 +26,29 @@ export interface Option {
   done?: boolean;
 }
 
+/**
+ * What a decision is about, for programs that read decisions (the AI's input encoding).
+ * Core rules set it explicitly; elsewhere `choose` infers it from the options, and
+ * `sourceId` says which Power / Fear Card / rule asked.
+ */
+export const DECISION_KINDS = [
+  // top-level menus
+  'growth', 'growthOrder', 'play', 'power',
+  // Presence
+  'presenceTrack', 'presenceAdd', 'presenceMove', 'presenceDestroy',
+  // targeting
+  'targetLand', 'targetSpirit',
+  // pieces
+  'damage', 'pickPiece', 'push', 'pushTo', 'gather',
+  // lands chosen by effects and rules
+  'land', 'cascade', 'invaderAdd',
+  // Power Cards
+  'powerDeck', 'cardKeep', 'cardForget', 'cardReclaim', 'card',
+  // everything else
+  'element', 'choice', 'yesNo', 'fear',
+] as const;
+export type DecisionKind = (typeof DECISION_KINDS)[number];
+
 export interface Decision {
   id: number;
   /** spirit index whose player decides, or -1 for "any player" (shared Invader-phase choices) */
@@ -40,6 +63,14 @@ export interface Decision {
   show?: { kind: 'powers' | 'fears' | 'blights'; id: string };
   /** top-level menus (not part of resolving an effect): Growth choice, card plays, Power phase */
   menu?: 'growth' | 'play' | 'power';
+  kind: DecisionKind;
+  /**
+   * What asked, as an id: `card:<id>`, `innate:<id>`, `fear:<id>`, `blight:<id>` or
+   * `rule:<name>` (Growth, Setup, adversary rules, Spirit special rules).
+   */
+  sourceId?: string;
+  /** context for effects in progress: the land acted on / moved from, the piece moving, step n of max */
+  about?: { space?: string; piece?: PieceKind; n?: number; max?: number };
 }
 
 export interface Answer {
@@ -63,6 +94,22 @@ export interface ChooseOpts {
   always?: boolean;
   show?: Decision['show'];
   menu?: Decision['menu'];
+  kind?: DecisionKind;
+  sourceId?: string;
+  about?: Decision['about'];
+}
+
+/** The kind of a decision whose call site didn't say, from its menu or its options. */
+export function inferKind(options: Option[], menu?: Decision['menu']): DecisionKind {
+  if (menu) return menu;
+  const main = options.filter((o) => !o.done);
+  if (!main.length) return 'choice';
+  if (main.every((o) => o.piece)) return 'pickPiece';
+  if (main.every((o) => o.space)) return 'land';
+  if (main.every((o) => o.element)) return 'element';
+  if (main.every((o) => o.card)) return 'card';
+  if (main.every((o) => o.spirit !== undefined)) return 'targetSpirit';
+  return 'choice';
 }
 
 /** Ask `owner` to pick one option. Auto-picks when only one option exists (unless `always`). */
@@ -84,6 +131,9 @@ export function* choose(
     focus: opts.focus,
     show: opts.show,
     menu: opts.menu,
+    kind: opts.kind ?? inferKind(options, opts.menu),
+    sourceId: opts.sourceId ?? gs.activityId ?? undefined,
+    about: opts.about,
   };
   const ans = yield [dec];
   return ans.k;
@@ -91,6 +141,7 @@ export function* choose(
 
 export function* confirm(gs: GameState, owner: number, prompt: string, yes = 'Yes', no = 'No', opts: ChooseOpts = {}): Eff<boolean> {
   const k = yield* choose(gs, owner, prompt, [{ key: 'yes', label: yes }, { key: 'no', label: no, done: true }], {
+    kind: 'yesNo',
     ...opts,
     always: true,
   });
