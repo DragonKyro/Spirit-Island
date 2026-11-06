@@ -48,6 +48,34 @@ The engine (`src/engine/`) is pure TypeScript. Game logic is written as generato
 
 See `CLAUDE.md` for the code map and conventions.
 
+## TODO
+
+Ongoing list — check items off (or delete them) as they land.
+
+**Verify**
+- [ ] Play a full solo game by hand in the browser (so far tested by engine tests and auto-played screenshots).
+- [ ] Play a full online game with 2+ real browsers/devices (the net layer passed a live Firebase test and a simulated multi-device test).
+- [ ] Decide whether to keep the official card scans in `public/cards/` on the public site (card art © Greater Than Games).
+
+**Rules gaps & judgment calls**
+- [ ] Beginner setup from the rulebook: Power Progression cards and "no Blight Card" (Invader Board blight) — needs verified numbers.
+- [ ] Generic "act as if you had fewer Elements" for every threshold (now only Massive Flooding and Tsunami offer it).
+- [ ] Replace: confirm whether a replaced Invader can be destroyed by the Damage it keeps (currently capped at Health − 1).
+- [ ] Corner-only adjacency where 3–4 boards meet at a point (only lands sharing a board edge are joined today).
+- [ ] Dissolve the Bonds of Kinship: enforce "as many different lands as possible" strictly.
+
+**Content**
+- [ ] Base-game Scenarios (Blitz, Guard the Isle's Heart, Rituals of Terror, Dahan Insurrection).
+- [ ] Thematic map boards.
+- [ ] Expansions (Branch & Claw, Jagged Earth, …) — out of scope for now.
+
+**UX**
+- [ ] Step-through pacing / animation for the Invader Phase (it currently resolves instantly; read the log).
+- [ ] Pinch-zoom and a better small-screen layout.
+- [ ] Online: undo by agreement, clearer reconnect state, spectator view polish.
+- [ ] Land shapes traced closer to the printed boards (currently schematic).
+- [ ] Game history / score tracking across games.
+
 ## Credits
 
 Spirit Island is designed by R. Eric Reuss and published by Greater Than Games. This is an unofficial fan project; card and rules text belong to their owners (card text transcribed via the community Spirit Island Card Katalog). Board geometry is schematic: every land, terrain, adjacency and Setup piece matches the printed boards, but land shapes are computed, not traced.
