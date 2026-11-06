@@ -11,10 +11,12 @@ import SetupView, { assignBoards, randomSeed } from './components/SetupView';
 import OnlineLobby from './components/online/OnlineLobby';
 import type { LobbyState } from './net/types';
 import { useGameStore } from './store/gameStore';
-import { useNetworkStore } from './store/networkStore';
+import { offlineSeats, useNetworkStore } from './store/networkStore';
+import HistoryView from './components/HistoryView';
+import { loadHistory } from './store/history';
 import { SPIRIT_COLORS } from './components/art';
 
-export type ViewName = 'home' | 'setup' | 'game' | 'rules' | 'online';
+export type ViewName = 'home' | 'setup' | 'game' | 'rules' | 'online' | 'history';
 
 const SPIRIT_OPTIONS = SPIRIT_ORDER.map((id) => ({ id, name: SPIRITS[id].name, color: SPIRIT_COLORS[id], complexity: SPIRITS[id].complexity }));
 const ADVERSARY_OPTIONS = ADVERSARY_ORDER.map((id) => ({ id, name: ADVERSARIES[id].name, maxLevel: id === 'none' ? 0 : 6 }));
@@ -82,11 +84,42 @@ function useOnlineBridge(active: boolean) {
 
 function OnlineBar() {
   const { roomCode, connected, isHost, presence, lobby } = useNetworkStore();
-  const result = useGameStore((s) => s.game?.gs.result.kind);
+  const { seat, undoRequest, requestUndo, voteUndo } = useGameStore();
+  const game = useGameStore((s) => s.game);
+  useGameStore((s) => s.tick);
+  const result = game?.gs.result.kind;
+  const players = game?.setup.spirits.length ?? 0;
+  const nameOf = (i: number) => game?.setup.names?.[i] ?? game?.gs.spirits[i]?.name ?? `Seat ${i + 1}`;
+  const off = lobby ? offlineSeats(lobby.seats, presence).map((s) => s.name) : [];
   return (
-    <section className="panel online-bar">
-      <span className={`dot ${connected ? 'on' : 'off'}`} /> Room <strong>{roomCode}</strong> · {presence.length} online
-      {lobby && <span className="dim"> · {lobby.seats.map((s) => s.name).join(', ')}</span>}
+    <section className={`panel online-bar${connected ? '' : ' warn'}`}>
+      {!connected && <div className="ob-banner">Connection lost — reconnecting… Your moves will be sent once you are back online.</div>}
+      <div className="ob-row">
+        <span className={`dot ${connected ? 'on' : 'off'}`} /> Room <strong>{roomCode}</strong> · {presence.length} online
+        {off.length > 0 && <span className="ob-off"> · offline: {off.join(', ')}</span>}
+      </div>
+      {seat === null && <div className="ob-row dim">👁 You are watching this game (no seat). Choices appear for the seated players.</div>}
+      {undoRequest ? (
+        <div className="ob-undo">
+          <strong>{nameOf(undoRequest.by)}</strong> asks to undo the last move ({undoRequest.yes.length}/{players} agree).
+          {seat !== null && !undoRequest.yes.includes(seat) ? (
+            <>
+              <button className="small" onClick={() => voteUndo(true)}>Agree</button>
+              <button className="secondary small" onClick={() => voteUndo(false)}>Decline</button>
+            </>
+          ) : (
+            <span className="dim"> Waiting for the others…</span>
+          )}
+        </div>
+      ) : (
+        seat !== null &&
+        result === 'IN_PROGRESS' &&
+        (game?.answers.length ?? 0) > 0 && (
+          <button className="secondary small" onClick={requestUndo} title={players > 1 ? 'Every player must agree' : 'Undo the last move'}>
+            ↶ {players > 1 ? 'Ask to undo last move' : 'Undo last move'}
+          </button>
+        )
+      )}
       {isHost && result && result !== 'IN_PROGRESS' && (
         <button className="secondary small" onClick={() => useNetworkStore.getState().returnToLobby()}>
           Back to lobby
@@ -127,7 +160,12 @@ function devDemo(): boolean {
 }
 
 export default function App() {
-  const [view, setView] = useState<ViewName>(() => (new URLSearchParams(location.search).has('room') ? 'online' : devDemo() ? 'game' : 'home'));
+  const [view, setView] = useState<ViewName>(() => {
+    const q = new URLSearchParams(location.search);
+    if (q.has('room')) return 'online';
+    if (q.has('rules')) return 'rules';
+    return devDemo() ? 'game' : 'home';
+  });
   const { startLocal, resumeLocal, hasSave, quit } = useGameStore();
   const netStatus = useNetworkStore((s) => s.status);
   const start = useNetworkStore((s) => s.start);
@@ -136,6 +174,9 @@ export default function App() {
   const [, force] = useState(0);
 
   const inOnlineGame = online && netStatus === 'playing' && !!start && !!asSetup(start.setup);
+  const lobby = useNetworkStore((s) => s.lobby);
+  const presence = useNetworkStore((s) => s.presence);
+  const offlineSeatIndexes = lobby ? lobby.seats.map((s, i) => (presence.some((p) => p.uuid === s.uuid) ? -1 : i)).filter((i) => i >= 0) : [];
 
   switch (view) {
     case 'home':
@@ -149,6 +190,7 @@ export default function App() {
           onPlayLocal={() => setView('setup')}
           onPlayOnline={() => setView('online')}
           onRules={() => setView('rules')}
+          onHistory={loadHistory().length ? () => setView('history') : undefined}
         />
       );
     case 'setup':
@@ -170,13 +212,16 @@ export default function App() {
           }}
         />
       );
+    case 'history':
+      return <HistoryView onBack={() => setView('home')} />;
     case 'rules':
-      return <RulesView onBack={() => setView('home')} />;
+      return <RulesView initial={new URLSearchParams(location.search).get('rules')} onBack={() => setView('home')} />;
     case 'online':
       if (inOnlineGame) {
         return (
           <GameView
             online={<OnlineBar />}
+            offline={offlineSeatIndexes}
             onExit={() => {
               useNetworkStore.getState().leaveRoom();
               quit();

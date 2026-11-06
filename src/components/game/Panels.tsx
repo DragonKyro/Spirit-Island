@@ -56,13 +56,17 @@ export function DecisionPanel({
   mine,
   others,
   onAnswer,
+  offline = [],
 }: {
   gs: GameState;
   mine: Decision[];
   others: Decision[];
   onAnswer: (d: number, k: string) => void;
+  /** online: seats whose player is not connected */
+  offline?: number[];
 }) {
-  const ownerName = (d: Decision) => (d.owner === -1 ? 'Any player' : gs.spirits[d.owner]?.name ?? '');
+  const ownerName = (d: Decision) =>
+    d.owner === -1 ? 'Any player' : `${gs.setup.names?.[d.owner] ? `${gs.setup.names[d.owner]} (${gs.spirits[d.owner]?.name})` : gs.spirits[d.owner]?.name ?? ''}${offline.includes(d.owner) ? ' — offline' : ''}`;
   return (
     <section className="panel decision-panel">
       {gs.activity && <div className="dp-activity">{gs.activity}</div>}

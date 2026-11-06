@@ -11,12 +11,24 @@ import Presence from './sprites/Presence';
 import Town from './sprites/Town';
 import DefendIcon from '../art/DefendIcon';
 
+export interface MapArrow {
+  from: string;
+  to: string;
+  color?: string;
+}
+
 export interface MapProps {
   gs: GameState;
   /** spaces that can be clicked right now, with a label for the tooltip */
   selectable: Map<string, string>;
   focus: string[];
   onSelect: (spaceId: string, ev: React.MouseEvent) => void;
+  /** arrows between spaces (Push / Gather / Cascade illustrations) */
+  arrows?: MapArrow[];
+  /** start zoomed in on a space */
+  initialView?: { space: string; k: number };
+  /** caption drawn over the map (Invader Phase playback) */
+  caption?: string | null;
 }
 
 interface Group {
@@ -53,42 +65,65 @@ function groupsFor(gs: GameState, sp: Space): Group[] {
   return out;
 }
 
-export default function IslandMap({ gs, selectable, focus, onSelect }: MapProps) {
+export default function IslandMap({ gs, selectable, focus, onSelect, arrows, initialView, caption }: MapProps) {
   const shape = useMemo(() => islandShape(gs.island.boards, gs.island.orientations), [gs.island]);
   const vb = shape.viewBox;
   const visible = gs.spaces;
 
-  // Zoom (wheel, about the cursor) and pan (drag); double-click resets. A drag never counts as a click.
-  const [view, setView] = useState({ k: 1, x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 });
+  // Zoom (wheel / pinch, about the pointer) and pan (drag); double-click resets. A drag never counts as a click.
+  const home = { k: 1, x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 };
+  const [view, setView] = useState(() => {
+    const sh = initialView ? shape.spaces[initialView.space] : undefined;
+    return sh && initialView ? { k: initialView.k, x: sh.cx, y: sh.cy } : home;
+  });
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ px: number; py: number; vx: number; vy: number; moved: boolean } | null>(null);
+  const pointers = useRef(new globalThis.Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number; base: typeof view; cx: number; cy: number } | null>(null);
   const suppressClick = useRef(false);
   const w = vb.w / view.k, h = vb.h / view.k;
-  const toUser = (clientX: number, clientY: number) => {
+  const toUser = (clientX: number, clientY: number, v = view) => {
     const r = svgRef.current!.getBoundingClientRect();
-    const s = Math.max(w / r.width, h / r.height); // preserveAspectRatio meet
-    return { x: view.x + (clientX - r.left - r.width / 2) * s, y: view.y + (clientY - r.top - r.height / 2) * s, s };
+    const s = Math.max(vb.w / v.k / r.width, vb.h / v.k / r.height); // preserveAspectRatio meet
+    return { x: v.x + (clientX - r.left - r.width / 2) * s, y: v.y + (clientY - r.top - r.height / 2) * s, s };
   };
-  const onWheel = (e: React.WheelEvent) => {
-    const k2 = Math.min(5, Math.max(1, view.k * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
-    const p = toUser(e.clientX, e.clientY);
-    const f = view.k / k2;
-    setView({ k: k2, x: p.x + (view.x - p.x) * f, y: p.y + (view.y - p.y) * f });
+  const zoomAt = (clientX: number, clientY: number, k2: number, base = view) => {
+    const k = Math.min(5, Math.max(1, k2));
+    const p = toUser(clientX, clientY, base);
+    const f = base.k / k;
+    setView({ k, x: p.x + (base.x - p.x) * f, y: p.y + (base.y - p.y) * f });
   };
+  const onWheel = (e: React.WheelEvent) => zoomAt(e.clientX, e.clientY, view.k * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
   const onPointerDown = (e: React.PointerEvent) => {
-    drag.current = { px: e.clientX, py: e.clientY, vx: view.x, vy: view.y, moved: false };
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()];
+      pinch.current = { dist: Math.hypot(a.x - b.x, a.y - b.y), base: view, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+      drag.current = null;
+      suppressClick.current = true;
+    } else drag.current = { px: e.clientX, py: e.clientY, vx: view.x, vy: view.y, moved: false };
   };
   const onPointerMove = (e: React.PointerEvent) => {
+    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const pc = pinch.current;
+    if (pc && pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pc.dist > 0) zoomAt(pc.cx, pc.cy, (pc.base.k * d) / pc.dist, pc.base);
+      return;
+    }
     const d = drag.current;
-    if (!d || !(e.buttons & 1)) return;
+    if (!d || (e.pointerType === 'mouse' && !(e.buttons & 1))) return;
     const dx = e.clientX - d.px, dy = e.clientY - d.py;
-    if (!d.moved && Math.hypot(dx, dy) < 5) return;
+    if (!d.moved && Math.hypot(dx, dy) < 6) return;
     d.moved = true;
     const { s } = toUser(e.clientX, e.clientY);
     setView((v) => ({ ...v, x: d.vx - dx * s, y: d.vy - dy * s }));
   };
-  const onPointerUp = () => {
-    suppressClick.current = !!drag.current?.moved;
+  const onPointerUp = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+    if (drag.current?.moved) suppressClick.current = true;
     drag.current = null;
   };
   const select = (id: string, e: React.MouseEvent) => {
@@ -112,7 +147,8 @@ export default function IslandMap({ gs, selectable, focus, onSelect }: MapProps)
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={onPointerUp}
-      onDoubleClick={() => setView({ k: 1, x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 })}
+      onPointerCancel={onPointerUp}
+      onDoubleClick={() => setView(home)}
     >
       <defs>
         <radialGradient id="map-sea" cx="50%" cy="50%" r="75%">
@@ -126,6 +162,9 @@ export default function IslandMap({ gs, selectable, focus, onSelect }: MapProps)
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
+        <marker id="map-arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#ffd966" stroke="#1c130e" strokeWidth={1} />
+        </marker>
         <filter id="map-shadow" x="-10%" y="-10%" width="120%" height="120%">
           <feDropShadow dx="0" dy="12" stdDeviation="14" floodColor="#000" floodOpacity="0.55" />
         </filter>
@@ -210,6 +249,28 @@ export default function IslandMap({ gs, selectable, focus, onSelect }: MapProps)
           </g>
         );
       })}
+      {arrows?.map((a, i) => {
+        const f = shape.spaces[a.from], t = shape.spaces[a.to];
+        if (!f || !t) return null;
+        const dx = t.cx - f.cx, dy = t.cy - f.cy;
+        const len = Math.hypot(dx, dy) || 1;
+        const mx = (f.cx + t.cx) / 2 - (dy / len) * 0.18 * len, my = (f.cy + t.cy) / 2 + (dx / len) * 0.18 * len;
+        const d = 'M' + (f.cx + dx * 0.2) + ',' + (f.cy + dy * 0.2) + ' Q' + mx + ',' + my + ' ' + (f.cx + dx * 0.8) + ',' + (f.cy + dy * 0.8);
+        return (
+          <g key={'arrow-' + i} pointerEvents="none">
+            <path d={d} fill="none" stroke="#1c130e" strokeWidth={22} strokeLinecap="round" opacity={0.55} />
+            <path d={d} fill="none" stroke={a.color ?? '#ffd966'} strokeWidth={12} strokeLinecap="round" markerEnd="url(#map-arrow)" />
+          </g>
+        );
+      })}
+      {caption && (
+        <g pointerEvents="none" transform={'translate(' + view.x + ',' + (view.y + h / 2) + ') scale(' + 1 / view.k + ')'}>
+          <rect x={-Math.min(vb.w - 32, 44 + caption.length * 14) / 2} y={-96} width={Math.min(vb.w - 32, 44 + caption.length * 14)} height={56} rx={10} fill="#101216e8" stroke="#e3b44f" strokeWidth={3} />
+          <text x={0} y={-59} textAnchor="middle" fontSize={26} fill="#ece6d6" fontFamily="Georgia, serif">
+            {caption}
+          </text>
+        </g>
+      )}
     </svg>
   );
 }

@@ -6,6 +6,7 @@ import { SPIRIT_COLORS, SpiritEmblem, TerrainDefs } from './art';
 import IslandMap from './board/Map';
 import { CardPreviewHost } from './cards/CardPreview';
 import { DecisionPanel, InvaderBoard, LogPanel, SpiritPanel } from './game/Panels';
+import { InvaderPlaybackPanel, useInvaderPlayback } from './game/InvaderPlayback';
 
 const PHASE_LABEL: Record<string, string> = {
   SETUP: 'Setup',
@@ -24,11 +25,21 @@ interface Popover {
   items: { d: Decision; o: Option }[];
 }
 
-export default function GameView({ onExit, online }: { onExit: () => void; online?: React.ReactNode }) {
+type MobileTab = 'invaders' | 'spirit' | 'log';
+
+/** The map caption: the step's headline, without card text. */
+const shortCaption = (t: string) => {
+  const head = t.split(' — ')[0];
+  return head.length > 56 ? `${head.slice(0, 54)}…` : head;
+};
+
+export default function GameView({ onExit, online, offline }: { onExit: () => void; online?: React.ReactNode; offline?: number[] }) {
   const { game, mode, seat, answer, undo, canUndo } = useGameStore();
   useGameStore((s) => s.tick); // re-render on every engine step
   const [tab, setTab] = useState<number | null>(null);
   const [pop, setPop] = useState<Popover | null>(null);
+  const [mobileTab, setMobileTab] = useState<MobileTab>('spirit');
+  const pb = useInvaderPlayback(game?.gs);
 
   const gs = game?.gs;
   const { mine, others } = useMemo(() => {
@@ -50,7 +61,7 @@ export default function GameView({ onExit, online }: { onExit: () => void; onlin
   const bySpace = new Map<string, { d: Decision; o: Option }[]>();
   for (const d of mine) for (const o of d.options) if (o.space) bySpace.set(o.space, [...(bySpace.get(o.space) ?? []), { d, o }]);
   const selectable = new Map<string, string>([...bySpace.entries()].map(([k, v]) => [k, v.map((x) => x.o.label).join(' / ')]));
-  const focus = mine.flatMap((d) => d.focus ?? []);
+  const focus = pb.open && pb.current ? pb.current.spaces : mine.flatMap((d) => d.focus ?? []);
   const onSelect = (spaceId: string, ev: React.MouseEvent) => {
     const items = bySpace.get(spaceId) ?? [];
     if (items.length === 1) respond(items[0].d.id, items[0].o.key);
@@ -93,6 +104,11 @@ export default function GameView({ onExit, online }: { onExit: () => void; onlin
             </span>
           ))}
         </div>
+        {pb.run && (
+          <button className="secondary" onClick={pb.show} title="Step through the last Invader Phase again">
+            ▶ Invaders
+          </button>
+        )}
         {mode === 'local' && (
           <button className="secondary" disabled={!canUndo()} onClick={() => { setPop(null); undo(); }} title="Undo your last choice">
             ↶ Undo
@@ -101,8 +117,9 @@ export default function GameView({ onExit, online }: { onExit: () => void; onlin
       </header>
       <div className="game-body">
         <div className="map-wrap" onClick={(e) => { if (e.target === e.currentTarget) setPop(null); }}>
-          <IslandMap key={gs.setup.seed} gs={gs} selectable={selectable} focus={focus} onSelect={onSelect} />
-          <div className="map-help">Scroll to zoom · drag to pan · double-click to reset</div>
+          <IslandMap key={gs.setup.seed} gs={gs} selectable={selectable} focus={focus} onSelect={onSelect} caption={pb.open && pb.current ? shortCaption(pb.current.title) : null} />
+          <div className="map-help">Scroll or pinch to zoom · drag to pan · double-click to reset</div>
+          <InvaderPlaybackPanel pb={pb} />
           {pop && (
             <div className="map-pop" style={{ left: pop.x, top: pop.y }}>
               <div className="small dim">{pop.space}</div>
@@ -142,10 +159,20 @@ export default function GameView({ onExit, online }: { onExit: () => void; onlin
             </div>
           )}
         </div>
-        <aside className="sidebar">
+        <aside className="sidebar" data-tab={mobileTab}>
           {online}
-          <DecisionPanel gs={gs} mine={mine} others={others} onAnswer={respond} />
-          <InvaderBoard gs={gs} />
+          <DecisionPanel gs={gs} mine={mine} others={others} onAnswer={respond} offline={offline} />
+          <nav className="mobile-tabs" aria-label="Panels">
+            {(['spirit', 'invaders', 'log'] as const).map((t) => (
+              <button key={t} className={mobileTab === t ? 'active' : ''} onClick={() => setMobileTab(t)}>
+                {t === 'spirit' ? 'Spirit' : t === 'invaders' ? 'Invaders' : 'Log'}
+              </button>
+            ))}
+          </nav>
+          <div className="mob-panel mob-invaders">
+            <InvaderBoard gs={gs} />
+          </div>
+          <div className="mob-panel mob-spirit">
           {spirits.length > 1 && (
             <div className="spirit-tabs">
               {spirits.map((s) => (
@@ -156,7 +183,10 @@ export default function GameView({ onExit, online }: { onExit: () => void; onlin
             </div>
           )}
           <SpiritPanel gs={gs} s={shown} playable={cardActions} />
-          <LogPanel gs={gs} />
+          </div>
+          <div className="mob-panel mob-log">
+            <LogPanel gs={gs} />
+          </div>
         </aside>
       </div>
     </div>

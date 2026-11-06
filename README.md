@@ -14,7 +14,8 @@ Play it at: **https://klui.github.io/Spirit-Island/**
 - **Adversaries**: Brandenburg-Prussia, England and Sweden, levels 0–6 (setup changes, deck orders, High Immigration, Heavy Mining, Mining Rush, Proud & Mighty Capital…), with the rulebook's difficulty values and scoring.
 - **Island boards A–D**, joined in the standard layouts for 1–4 players.
 - **Online play** through Firebase: create a room, share the link, each player takes a seat and a Spirit; play is simultaneous where the rules allow.
-- Solo games save automatically in the browser, with unlimited Undo.
+- Solo games save automatically in the browser, with unlimited Undo; online games support undo by agreement.
+- Invader Phase playback, an illustrated rules reference with engine-rendered examples, and game history & stats.
 - All art is original inline SVG (pieces, icons, terrain, Spirit emblems), inspired by the rulebook's iconography.
 
 ## Tech stack
@@ -70,12 +71,14 @@ Ongoing list — check items off (or delete them) as they land.
 - [ ] Expansions (Branch & Claw, Jagged Earth, …) — out of scope for now.
 
 **UX**
-- [ ] Step-through pacing / animation for the Invader Phase (it currently resolves instantly; read the log).
-- [ ] Pinch-zoom and a better small-screen layout.
-- [ ] Online: undo by agreement, clearer reconnect state, spectator view polish.
-- [ ] Land shapes traced closer to the printed boards (currently schematic).
-- [ ] Game history / score tracking across games.
+- [x] Step-through playback of each Invader Phase (highlights lands step by step; replay with "▶ Invaders").
+- [ ] Animate pieces moving between intermediate board states during playback (the board currently shows the end state while steps highlight where things happened).
+- [x] Pinch-zoom and a small-screen layout (map on top, decisions pinned, Spirit / Invaders / Log tabs).
+- [x] Online: undo by agreement, reconnecting banner, offline markers on seats, spectator notice.
+- [x] Land shapes traced from the printed boards.
+- [x] Game history & stats (win rate, best score, per-Spirit record).
+- [x] Illustrated rules reference (worked examples rendered by the real engine).
 
 ## Credits
 
-Spirit Island is designed by R. Eric Reuss and published by Greater Than Games. This is an unofficial fan project; card and rules text belong to their owners (card text transcribed via the community Spirit Island Card Katalog). Board geometry is schematic: every land, terrain, adjacency and Setup piece matches the printed boards, but land shapes are computed, not traced.
+Spirit Island is designed by R. Eric Reuss and published by Greater Than Games. This is an unofficial fan project; card and rules text belong to their owners (card text transcribed via the community Spirit Island Card Katalog). Land shapes are traced from the printed boards; every land, terrain, adjacency and Setup piece matches them.

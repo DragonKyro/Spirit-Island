@@ -182,7 +182,9 @@ DEFEAT: 2 × Difficulty, +1 per Invader Card not in the deck (discard and face-u
     body: `- All rules are enforced automatically; Invader actions, Fear, Blight and Terror Levels are resolved for you, and you are asked whenever a rule gives a choice (where to Push, how to divide Damage, where Blight Cascades…).
 - Power Cards are gained the standard way (choose Minor or Major, draw 4, keep 1). The beginner Power Progression cards are not used.
 - A random base-game Blight Card (Downward Spiral or Memory Fades to Dust) is always used.
-- Boards A–D join in the standard layouts for 1–4 players. Board art is schematic: land shapes are simplified, but every land, terrain, adjacency and Setup piece matches the printed boards.
-- Solo games save automatically in this browser; Undo steps back one choice.`,
+- Boards A–D join in the standard layouts for 1–4 players. Land shapes are traced from the printed boards, and every land, terrain, adjacency and Setup piece matches them.
+- After each Invader Phase a playback panel steps through what happened (Fear, Ravage, Build, Explore), highlighting the lands involved; replay it any time with "▶ Invaders".
+- Solo games save automatically in this browser; Undo steps back one choice. Online, any player can ask to undo the last move — it happens once every seated player agrees.
+- Finished games are kept under "History & stats" on the home screen.`,
   },
 ];

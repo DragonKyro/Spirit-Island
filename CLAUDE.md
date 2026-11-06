@@ -57,12 +57,15 @@ src/
   components/
     HomeView, SetupView, GameView, RulesView
     game/Panels.tsx       # decision panel, invader board, spirit panel, log
+    game/InvaderPlayback.tsx # step-through of the latest Invader Phase (from the log)
+    rules/RuleFigures.tsx # rules illustrations: real components + engine-computed before/after examples
+    HistoryView.tsx       # finished games (store/history.ts, localStorage)
     board/Map.tsx         # island SVG; board/sprites/ = piece art
     cards/                # PowerCard face, hover preview of card scans
     art/                  # all other SVG art (icons, terrain patterns, emblems, logo, favicon)
     online/               # online lobby UI
   data/
-    boardGeometry.ts      # computed land polygons per board (board-local coords)
+    boardGeometry.ts      # land polygons per board (board-local coords), junctions traced from the printed boards
     boardLayout.ts        # places boards, builds wobbly SVG paths
     cardImages.ts         # URLs for public/cards scans
     rulesContent.ts       # rules reference text
@@ -80,7 +83,7 @@ tests/engine, tests/net
 - **Special rules live where they apply** (e.g. Choke the Land with Green in Ravage/Build, Bringer's To Dream a Thousand Deaths inside damage/destroy, Ocean's Drowning in movePiece).
 - **Views never touch engine internals directly**; they read `game.gs` from `useGameStore` and call `answer(d, k)`.
 - **Types over enums**, exported `const` records for data.
-- **Online:** host writes the setup as the match start record; each answer is `{d, k, s}` appended to a write-once action log. All app data lives under the `spirit-island` key of the shared database; `database.rules.json` only defines that key and `scripts/merge-db-rules.mjs` merges it into the live rules on deploy (never deploy a rules file that would replace other apps' keys).
+- **Online:** host writes the setup as the match start record; each answer is `{d, k, s}` appended to a write-once action log. Undo requests/votes (`{u:'req'|'yes'|'no', …}`) ride in the same log and are evaluated in `gameStore.syncOnline` (all seated players must agree; any landed move cancels a pending request). All app data lives under the `spirit-island` key of the shared database; `database.rules.json` only defines that key and `scripts/merge-db-rules.mjs` merges it into the live rules on deploy (never deploy a rules file that would replace other apps' keys).
 
 ## Assets
 

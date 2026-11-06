@@ -6,12 +6,14 @@ export default function HomeView({
   onContinue,
   canContinue,
   onRules,
+  onHistory,
 }: {
   onPlayLocal: () => void;
   onPlayOnline: () => void;
   onContinue: () => void;
   canContinue: boolean;
   onRules: () => void;
+  onHistory?: () => void;
 }) {
   return (
     <div className="home-view">
@@ -30,6 +32,11 @@ export default function HomeView({
         <button className="secondary" onClick={onRules}>
           Rules reference
         </button>
+        {onHistory && (
+          <button className="secondary" onClick={onHistory}>
+            History &amp; stats
+          </button>
+        )}
       </div>
       <p className="fine-print">
         A fan-made digital table for the base game of <em>Spirit Island</em> by R. Eric Reuss (Greater Than Games). Card text belongs to its owners.
