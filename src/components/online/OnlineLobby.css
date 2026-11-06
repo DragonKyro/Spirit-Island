@@ -1,0 +1,362 @@
+/* Online lobby (src/components/online/OnlineLobby.tsx). Colors come from
+   the variables in src/styles/globals.css. Every class is prefixed `ol-`. */
+
+.ol-page {
+  min-height: 100vh;
+  padding: 1.5rem;
+  display: flex;
+  justify-content: center;
+}
+
+.ol-wrap {
+  width: 100%;
+  max-width: 980px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ol-topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ol-topbar h2 {
+  margin: 0;
+  color: var(--accent);
+  flex: 1;
+}
+
+.ol-panel {
+  background: var(--panel);
+  border: 1px solid #3a3f4a;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+}
+
+.ol-panel h3 {
+  font-size: 1.05rem;
+  margin: 0 0 0.75rem;
+  color: var(--ink);
+}
+
+.ol-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .ol-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ol-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.ol-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ol-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
+}
+
+.ol-label {
+  font-size: 0.8rem;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ol-input,
+.ol-select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid #3a3f4a;
+  border-radius: 6px;
+  padding: 7px 10px;
+  min-width: 0;
+}
+
+.ol-input:focus,
+.ol-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ol-select:disabled,
+.ol-input:disabled {
+  opacity: 0.65;
+}
+
+.ol-code-input {
+  width: 8.5em;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-family: ui-monospace, 'Consolas', monospace;
+}
+
+.ol-hint {
+  color: var(--ink-dim);
+  font-size: 0.9rem;
+  margin: 0.25rem 0 0;
+}
+
+.ol-error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(200, 79, 79, 0.15);
+  border: 1px solid var(--danger);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+}
+
+.ol-error span {
+  flex: 1;
+}
+
+.ol-small {
+  padding: 4px 10px;
+  font-size: 0.85rem;
+}
+
+.ol-room-code {
+  font-family: ui-monospace, 'Consolas', monospace;
+  font-size: 1.6rem;
+  letter-spacing: 0.25em;
+  color: var(--accent);
+  background: var(--panel-2);
+  border-radius: 6px;
+  padding: 2px 10px 2px 14px;
+}
+
+.ol-link {
+  font-family: ui-monospace, 'Consolas', monospace;
+  font-size: 0.8rem;
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.ol-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+}
+
+.ol-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #555b66;
+  flex: none;
+}
+
+.ol-dot.on {
+  background: var(--good);
+}
+
+.ol-dot.off {
+  background: var(--danger);
+}
+
+.ol-seats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ol-seat {
+  display: grid;
+  grid-template-columns: 1.8rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--panel-2);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+}
+
+.ol-seat.mine {
+  border-color: var(--accent);
+}
+
+.ol-seat.empty {
+  background: transparent;
+  border: 1px dashed #3a3f4a;
+  color: var(--ink-dim);
+}
+
+.ol-seat-num {
+  color: var(--ink-dim);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.ol-seat-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.ol-seat-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ol-seat-spirit {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--ink-dim);
+}
+
+.ol-tag {
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-dim);
+  border: 1px solid #3a3f4a;
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.ol-tag.host {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.ol-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  flex: none;
+}
+
+.ol-board {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+}
+
+.ol-spirits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.5rem;
+}
+
+.ol-spirit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border-left-width: 5px;
+}
+
+.ol-spirit.chosen {
+  background: #3b3526;
+  border-color: var(--accent);
+}
+
+.ol-spirit-name {
+  font-weight: 600;
+}
+
+.ol-spirit-meta {
+  font-size: 0.78rem;
+  color: var(--ink-dim);
+}
+
+.ol-start {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ol-chat-log {
+  height: 220px;
+  overflow-y: auto;
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.5rem;
+}
+
+.ol-chat-system {
+  color: var(--ink-dim);
+  font-style: italic;
+}
+
+.ol-chat-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ol-chat-form .ol-input {
+  flex: 1;
+}
+
+.ol-watchers {
+  font-size: 0.9rem;
+  color: var(--ink-dim);
+  margin-top: 0.75rem;
+}
+
+.ol-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--ink-dim);
+  font-size: 0.85rem;
+  margin: 0.75rem 0;
+}
+
+.ol-divider::before,
+.ol-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid #3a3f4a;
+}

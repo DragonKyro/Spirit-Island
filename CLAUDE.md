@@ -1,102 +1,99 @@
-# Spirit Island — Solo Web App
+# Spirit Island — Web App
 
 ## Project Overview
 
-Single-player digital adaptation of the Spirit Island board game, built as a static web app deployable to GitHub Pages. Automates turn order, rule enforcement, and game-state bookkeeping so the player can focus on strategy.
+Digital table for the **base game** of Spirit Island (revised edition): solo, hot-seat (one person playing several Spirits) or online multiplayer via Firebase. Static web app on GitHub Pages. The engine enforces every rule and automates all bookkeeping; players are prompted whenever a rule offers a choice.
+
+Scope: 8 base Spirits, all 90 base Power Cards (32 Unique / 36 Minor / 22 Major), 15 Fear Cards, 2 Blight Cards (Downward Spiral, Memory Fades to Dust), 3 Adversaries (levels 0–6), island boards A–D in the standard 1–4 player layouts. No expansions, no Scenarios, no Power Progression.
 
 ## Tech Stack
 
-- **TypeScript 5** (strict mode) + **React 18**
-- **Vite 5** — dev server + bundler
-- **Zustand 4** — game state store
-- **Vitest 2** — engine unit tests
-- Inline **SVG** for all board art and sprites (no raster assets)
-- **GitHub Actions** → **GitHub Pages** auto-deploy on push to `main`
+- TypeScript 5 (strict) + React 18, Vite 5, Zustand 4, Vitest 2
+- Firebase Realtime Database + anonymous Auth for online play (lazy-loaded; the shared project `github-games-e7c7d`)
+- Inline SVG for all drawn art; official card scans for card faces (see Assets)
+- GitHub Actions → GitHub Pages on push to `main`
 
 ## Commands
 
 ```bash
-npm install      # install deps
-npm run dev      # Vite dev server (with HMR) at http://localhost:5173/Spirit-Island/
-npm run build    # tsc -b && vite build → dist/
-npm run preview  # serve dist/ for production-bundle smoke test
-npm test         # run vitest engine tests
+npm install          # see "npm registry" below
+npm run dev          # http://localhost:5173/Spirit-Island/
+npm test             # vitest: engine + net
+npm run build        # tsc -b && vite build → dist/
+npm run deploy:rules # deploy database.rules.json (merged into the shared live rules)
 ```
 
-The Vite `base` is `/Spirit-Island/` so the bundle works under the GitHub Pages URL `https://klui.github.io/Spirit-Island/`. Local dev also serves under that prefix.
+Dev-only deep link: `?demo=river,shadows&steps=30&seed=7&adv=sweden&lvl=2` starts a local game and auto-answers N decisions (first non-pass option) — useful for screenshots.
+
+### npm registry
+
+This machine's global npm registry is DRW Artifactory and `registry.npmjs.org` is not reachable directly. `package-lock.json` must only reference `https://registry.npmjs.org/` (CI uses the project `.npmrc`). To add a dependency: `npm install <pkg> --registry=https://artifacts.drwholdings.com/artifactory/api/npm/ext-npm/`, then rewrite that prefix to `https://registry.npmjs.org/` in every `"resolved"` URL of the lockfile, and check `grep -c artifacts.drwholdings package-lock.json` is 0.
 
 ## Project Structure
 
 ```
 src/
-  main.tsx              # React entry
-  App.tsx               # view router (home / select / game / rules)
-  engine/               # pure TypeScript — no React, no DOM, no Vite
-    pieces.ts           # Terrain/InvaderType/Element/PowerSpeed unions + INVADER_HEALTH/DAMAGE/FEAR constants
-    land.ts             # Land + adjacency + createSoloBoard() + populateBoard()
-    spirit.ts           # Spirit + the 4 low-complexity spirits in ALL_SPIRITS
-    adversary.ts        # Adversary + the 3 adversaries (+ "No Adversary") in ALL_ADVERSARIES
-    invaderDeck.ts      # InvaderCard + deck composition + draw/advance
-    fear.ts             # 50 fear cards (BASE_FEAR_CARDS) + FearSystem + terror thresholds
-    blight.ts           # 24 blight cards (20 standard + 4 still-healthy)
-    invaderActions.ts   # explore / build / ravage logic
-    gameState.ts        # central state, setup, blight cascade, win/loss check
-    turnManager.ts      # phase orchestrator (Spirit → Fast → Invader → Slow → Time Passes)
+  App.tsx                 # view router (home / setup / game / rules / online) + online bridge
+  engine/                 # pure TypeScript — no React, DOM, Vite or Firebase
+    types.ts              # string-literal unions: Terrain, Element, PieceKind, SpiritId, …
+    rng.ts                # seeded PRNG (state lives in GameState)
+    island.ts             # boards A–D (terrain, adjacency, setup pieces, joinable sides) + 1–4 board layouts
+    state.ts              # GameState / Space / SpiritState types + read-only queries
+    decide.ts             # Decision / Option / Answer, choose(), parallel(), GameOver
+    ops.ts                # primitives: damage, destroy, push/gather, blight+cascade, presence, fear, cards, targeting, win/loss
+    cardData.ts           # Power Card data (cost, speed, elements, range/target, text)
+    cards.ts              # Power Card effects keyed by card id
+    spiritData.ts         # Spirit panels: growth, presence tracks, innates (thresholds), special rules, setup text
+    innates.ts            # Innate Power effects
+    fearCards.ts          # 15 Fear Cards (3 Terror Levels each)
+    adversary.ts          # adversary levels: difficulty, fear deck sizes, deck orders, text
+    setup.ts              # createState(), invader deck, adversary setup, starting Presence
+    phases.ts             # sequence of play: Spirit → Fast → Invader → Slow → Time Passes
+    game.ts               # driver: newGame / applyAnswer / replay / score
+  net/                    # Firebase room transport (+ in-memory fake for tests); game-agnostic
   store/
-    gameStore.ts        # Zustand store wrapping engine; bumps tick after each action to drive re-renders
+    gameStore.ts          # engine wrapper: local save/undo, online apply via action log
+    networkStore.ts       # rooms, lobby, presence, chat, action log
   components/
-    HomeView.tsx
-    SpiritSelectView.tsx
-    GameView.tsx        # board + right sidebar (invader/fear/blight/spirit/log panels)
-    RulesView.tsx
-    board/
-      Map.tsx           # <svg> root, ocean, bridges, 8 land shapes
-      LandShape.tsx     # one land polygon + its sprites in a small grid
-      sprites/          # Explorer / Town / City / Dahan / Blight / Presence (each is one SVG component)
+    HomeView, SetupView, GameView, RulesView
+    game/Panels.tsx       # decision panel, invader board, spirit panel, log
+    board/Map.tsx         # island SVG; board/sprites/ = piece art
+    cards/                # PowerCard face, hover preview of card scans
+    art/                  # all other SVG art (icons, terrain patterns, emblems, logo, favicon)
+    online/               # online lobby UI
   data/
-    boardLayout.ts      # hex layout math, polygon vertices, terrain fills, NON_HEX_BRIDGES list
-    rulesContent.ts     # rules sections (transcribed)
-  styles/
-    globals.css         # CSS vars: --jungle/--mountain/--sands/--wetland, --presence-*, panel colors
-tests/
-  engine/
-    invaderActions.test.ts
-    fear.test.ts
-    blight.test.ts
-    turnManager.test.ts
+    boardGeometry.ts      # computed land polygons per board (board-local coords)
+    boardLayout.ts        # places boards, builds wobbly SVG paths
+    cardImages.ts         # URLs for public/cards scans
+    rulesContent.ts       # rules reference text
+public/cards/             # official card scans (base game only), named by engine id
+tests/engine, tests/net
 ```
 
 ## Architecture Conventions
 
-- **Engine is pure TypeScript.** Files in `src/engine/` import nothing from React, the DOM, or Vite. This keeps rules testable in vitest without a renderer. Logic operates on plain data; mutation is fine because the store re-renders via a `tick` counter.
-- **Views never touch the engine directly.** Components read state and dispatch actions through the Zustand store (`useGameStore`).
-- **Types over enums.** Use TypeScript string-literal unions (`type Terrain = 'JUNGLE' | ...`) rather than `enum`. They serialize cleanly and don't need `.name` workarounds.
-- **Data tables are exported `const` records.** Spirits, adversaries, fear cards, blight cards: each lives next to its types in the engine module.
-- **All sprites and board shapes are inline SVG components.** No PNG/JPG assets. Each sprite component takes a `size` prop and uses `viewBox` for scaling. Colors come from CSS variables in `styles/globals.css` where appropriate.
-- **The board is hex-tiled.** 8 lands laid out in 2 rows of 4 hexes (coastal row + offset inland row). Hex math lives in `data/boardLayout.ts`. Where the source engine's adjacency includes non-hex neighbors (asymmetric edges from the original Python data), dashed "bridge" lines connect them visually.
-- **Map is a single SVG.** All 8 lands and the ocean render inside one `<svg viewBox="0 0 800 500">`. The SVG `<defs>` (gradients, patterns) is defined once in `Map.tsx` and referenced by id from `LandShape.tsx`.
+- **Engine is pure and deterministic.** A game = `GameSetup` (incl. seed) + ordered `Answer[]`. Never use `Math.random`, `Date`, or iteration over unordered sources in `src/engine/`; all randomness goes through `gs.rng`. This is what makes undo, saves and online sync work.
+- **Choices are generators.** Any logic that may need a player decision is a generator (`Eff<T>`) and asks via `choose()` / `confirm()` (which auto-pick when only one option exists). Never block on input any other way. Decisions carry `owner` (spirit index, or -1 for "any player").
+- **Invalid answers are ignored**, never thrown: `applyAnswer` checks the decision id, the option key and (online) the seat, so stale answers are dropped identically on every device.
+- **Game over is an exception.** `checkEnd()` throws `GameOver` (victory / defeat / sacrifice victory) from wherever a condition is met; the driver catches it.
+- **Card / spirit data and effects are split** (`cardData.ts` vs `cards.ts`, `spiritData.ts` vs `innates.ts`) to avoid import cycles. Every card id must have an effect (enforced by `tests/engine/coverage.test.ts`).
+- **Special rules live where they apply** (e.g. Choke the Land with Green in Ravage/Build, Bringer's To Dream a Thousand Deaths inside damage/destroy, Ocean's Drowning in movePiece).
+- **Views never touch engine internals directly**; they read `game.gs` from `useGameStore` and call `answer(d, k)`.
+- **Types over enums**, exported `const` records for data.
+- **Online:** host writes the setup as the match start record; each answer is `{d, k, s}` appended to a write-once action log. All app data lives under the `spirit-island` key of the shared database; `database.rules.json` only defines that key and `scripts/merge-db-rules.mjs` merges it into the live rules on deploy (never deploy a rules file that would replace other apps' keys).
 
-## Game Rules Reference
+## Assets
 
-- **Solo board**: 8 lands. Lands 1-4 are coastal (touch the ocean), 5-8 are inland.
-- **Terrains** (by land index): `[JUNGLE, MOUNTAIN, SANDS, WETLAND, JUNGLE, MOUNTAIN, SANDS, WETLAND]`.
-- **Turn order**: Spirit Phase (Growth → Energy → Play Cards) → Fast Powers → Invader Phase (Blight Effect → Fear → Ravage → Build → Explore → Advance Cards) → Slow Powers → Time Passes.
-- **Win** (by Terror Level): TL1 = no invaders; TL2 = no towns/cities; TL3 = no cities.
-- **Lose**: all blight off the card, any spirit with no presence, or empty invader deck on explore.
+- Drawn art is inline SVG components (`size` prop + `viewBox`); new pieces go in `components/board/sprites/`, other art in `components/art/`.
+- Exception: official card scans (from the sibling `spirit-island-card-katalog` repo) live in `public/cards/{powers,fears,blights}/<engine-id>.jpg`. Card art © Greater Than Games.
 
-## Current State (v1)
+## Rules Sources
 
-- Invader behavior is fully automated (explore, build, ravage with cascade, fear generation, terror advancement, win/loss detection).
-- Player actions (growth choices beyond the auto-pick, power card plays, power resolution) are stubbed — the game plays as if the player always passes. Matches the parent Python project's behavior. UI hooks exist (Run Full Turn / Next Phase buttons), so adding interactive growth/card play is a localized refactor.
-- Save/load is intentionally not implemented in v1. Adding it would mean a `localStorage` shim that JSON-serializes `GameState` (all engine types are JSON-friendly).
-
-## Deploying
-
-Push to `main`. The `deploy.yml` workflow runs tests, builds, and publishes to Pages via `actions/deploy-pages`. Repo settings → Pages must be set to *Source: GitHub Actions*.
+- `docs/Spirit Island Rules.pdf` — rules reference sheet (sequence of play, invader actions, blight, fear, powers, scoring, difficulty chart).
+- Card text: `../spirit-island-card-katalog/src/db.ts`.
+- Spirit panels and board facts were cross-checked against open-source implementations (spirit-island-builder, the Spirit Island TTS mod, rettigcd/spiritisland).
 
 ## When adding features
 
-- Engine changes go in `src/engine/` and **must** come with a vitest test. The engine is the cheapest part to test.
-- New sprite art = new file under `src/components/board/sprites/`. Match the existing pattern (SVG `viewBox` with `size` prop).
-- New view = new file under `src/components/` and a case in `App.tsx`'s view switch.
-- Don't reach for new assets directories. SVG inline.
+- Engine changes need a vitest test; run the fuzz suite (`tests/engine/fuzz.test.ts`) — it plays full random games for every Spirit, adversary and player count and checks replay determinism.
+- Bump `GameSetup.v` if saved games / logs from older builds would replay differently.

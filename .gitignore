@@ -39,3 +39,6 @@ webscrape/*.html
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
+
+# Firebase CLI (merged rules written at deploy time)
+.firebase/

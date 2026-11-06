@@ -1,0 +1,31 @@
+// Public barrel for all inline-SVG art.
+export { default as Explorer } from '../board/sprites/Explorer';
+export { default as Town } from '../board/sprites/Town';
+export { default as City } from '../board/sprites/City';
+export { default as Dahan } from '../board/sprites/Dahan';
+export { default as Blight } from '../board/sprites/Blight';
+export { default as Presence } from '../board/sprites/Presence';
+
+export { default as FearIcon, FearMask } from './FearIcon';
+export { default as EnergyIcon } from './EnergyIcon';
+export { default as CardPlayIcon } from './CardPlayIcon';
+export { default as ReclaimIcon } from './ReclaimIcon';
+export { default as FastIcon } from './FastIcon';
+export { default as SlowIcon } from './SlowIcon';
+export { default as DefendIcon } from './DefendIcon';
+export { default as RangeIcon } from './RangeIcon';
+export { default as SacredSiteIcon } from './SacredSiteIcon';
+export { default as TerrorLevelIcon } from './TerrorLevelIcon';
+export { default as ElementIcon, type ElementKind } from './ElementIcon';
+export { default as TerrainIcon, TerrainBadge, TerrainGlyph } from './TerrainIcon';
+export { default as TerrainDefs } from './TerrainDefs';
+export { TERRAIN_BASE_COLORS, TERRAIN_PATTERN_IDS, BLIGHTED_OVERLAY_ID, type TerrainKind } from './terrainColors';
+export { default as InvaderCardArt } from './InvaderCardArt';
+export { default as FearCardBack } from './FearCardBack';
+export { default as BlightCardArt } from './BlightCardArt';
+export { default as SpiritEmblem } from './SpiritEmblem';
+export { SPIRIT_COLORS, type SpiritKey } from './spiritColors';
+export { default as Logo } from './Logo';
+export { FAVICON_SVG, FAVICON_DATA_URI } from './favicon';
+export { default as ArtGallery } from './ArtGallery';
+export { PresenceArt, PresenceDisk } from './PresenceArt';

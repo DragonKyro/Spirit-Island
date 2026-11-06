@@ -1,94 +1,53 @@
 # Spirit Island — Web
 
-Solo digital adaptation of the cooperative board game **Spirit Island**, deployed as a static web app via GitHub Pages.
-
-The app enforces turn order, automates bookkeeping (fear, blight, invader actions), and tracks game state so you can focus on strategy.
+A digital table for the cooperative board game **Spirit Island** (base game): solo, hot-seat, or online with friends. Every rule is enforced and all Invader bookkeeping is automated; the game asks you whenever the rules give a choice.
 
 Play it at: **https://klui.github.io/Spirit-Island/**
 
+## What's in it
+
+- **All 8 base-game Spirits** with their real Growth options, Presence Tracks (incl. bonus Elements, Reclaim One, "Any"), Innate Powers and Special Rules: Lightning's Swift Strike, River Surges in Sunlight, Vital Strength of the Earth, Shadows Flicker Like Flame, Thunderspeaker, A Spread of Rampant Green, Ocean's Hungry Grasp, Bringer of Dreams and Nightmares.
+- **Every base-game Power Card** — 32 Unique, 36 Minor, 22 Major — with thresholds, "-or-" choices, Repeats, Range/Target rules, Fast/Slow timing and Elements.
+- **Invaders**: Explore / Build / Ravage with Defend, Dahan counter-attacks, Blight with Cascades and Presence destruction, the Stage I/II/III deck (incl. Coastal Lands), Escalation.
+- **Fear**: the 15 base Fear Cards at all three Terror Levels, the Terror dividers, and Fear victory.
+- **Blight**: both base Blight Cards (Downward Spiral, Memory Fades to Dust), Healthy → Blighted Island.
+- **Adversaries**: Brandenburg-Prussia, England and Sweden, levels 0–6 (setup changes, deck orders, High Immigration, Heavy Mining, Mining Rush, Proud & Mighty Capital…), with the rulebook's difficulty values and scoring.
+- **Island boards A–D**, joined in the standard layouts for 1–4 players.
+- **Online play** through Firebase: create a room, share the link, each player takes a seat and a Spirit; play is simultaneous where the rules allow.
+- Solo games save automatically in the browser, with unlimited Undo.
+- All art is original inline SVG (pieces, icons, terrain, Spirit emblems), inspired by the rulebook's iconography.
+
 ## Tech stack
 
-- **TypeScript 5** + **React 18**
-- **Vite 5** (dev server + production build)
-- **Zustand** for game state
-- **Vitest** for engine tests
-- Inline **SVG** for all board art and sprites — no raster dependencies
-- **GitHub Actions** → **GitHub Pages** auto-deploy on push to `main`
+- TypeScript 5 (strict) + React 18, Vite 5, Zustand 4, Vitest 2
+- Firebase Realtime Database + anonymous Auth (online play only; loaded lazily)
+- GitHub Actions → GitHub Pages
 
-## Requirements
-
-- Node.js 20+
-- npm 10+
-
-## Local development
+## Development
 
 ```bash
 npm install
-npm run dev       # Vite dev server with HMR
-npm run build     # type-check + production build to dist/
-npm run preview   # serve dist/ locally to verify the production bundle
-npm test          # run engine unit tests (vitest)
+npm run dev          # http://localhost:5173/Spirit-Island/
+npm test             # engine + network tests
+npm run build        # type-check + production build → dist/
+npm run preview      # serve dist/
+npm run deploy:rules # deploy this app's Realtime Database rules (merged into the shared rules)
 ```
 
-The dev server respects the configured base path (`/Spirit-Island/`). Visit `http://localhost:5173/Spirit-Island/` (or whichever port Vite chooses).
+The project `.npmrc` pins the public npm registry so `package-lock.json` only references `registry.npmjs.org`.
 
-## Deploy
+In dev builds, `?demo=river,shadows&steps=30&seed=7&adv=sweden&lvl=2` starts a game and auto-plays some choices (handy for screenshots).
 
-Push to `main`. The workflow in `.github/workflows/deploy.yml` runs tests, builds, and publishes `dist/` to GitHub Pages. Repository settings → Pages must be set to *Source: GitHub Actions*.
+## How it works
 
-## Features
+The engine (`src/engine/`) is pure TypeScript. Game logic is written as generators that *yield* a decision whenever a player must choose; a game is fully determined by its setup (including an RNG seed) plus the ordered list of answers. That one design gives:
 
-### Setup screen
-- Pick one or more of the four low-complexity spirits: Lightning's Swift Strike, Vital Strength of the Earth, River Surges in Sunlight, Shadows Flicker Like Flame
-- Choose an adversary (Brandenburg-Prussia, England, Sweden, or None) and a difficulty level (1-6)
+- **Undo** — replay the answer log minus its last entry.
+- **Saves** — store setup + answers in `localStorage`.
+- **Online play** — the host writes the setup to the room; every move is a tiny `{decision, choice, seat}` record in a write-once, ordered action log, and every device replays the same log. Stale or out-of-turn answers are ignored identically everywhere.
 
-### Game screen
-- **Organic SVG island board** with 8 hex-shaped lands, terrain-colored, shared borders for adjacent lands, ocean ring around coastal lands, and dashed "bridges" for the non-hex adjacencies in the original board
-- Inline SVG sprites for Explorers (red coats), Towns, Cities (walled keeps), Dahan (indigenous defenders with spears), Blight (thorny growths), and spirit Presence orbs in each spirit's color
-- Side panel with the invader deck slots (Ravage / Build / Deck count), fear pool + terror level + win condition, blight card state, per-spirit summary (energy / card plays / hand / presence), and a live event log
-- *Next Phase* and *Run Full Turn* controls — the invader phase, fear cascades, blight cascades, and win/loss checks run automatically
+See `CLAUDE.md` for the code map and conventions.
 
-### Rules reference
-- Browsable, sectioned rules text in-app
+## Credits
 
-### Not yet implemented (v1 scope cut)
-- Save / load (browser localStorage shim is a future addition)
-- Player-driven power card play / power resolution (the engine auto-passes; matches the Python parent project's behavior)
-- Higher-complexity spirits and additional adversaries beyond the four spirits / three adversaries shipped
-
-## Project structure
-
-```
-src/
-  main.tsx              # React entry
-  App.tsx               # top-level view router
-  engine/               # pure-TS game logic, no React imports — fully testable
-    pieces.ts           # Terrain / InvaderType / Element / PowerSpeed types + constants
-    land.ts             # Land + createSoloBoard()
-    spirit.ts           # Spirit + ALL_SPIRITS (4 spirits)
-    adversary.ts        # Adversary + ALL_ADVERSARIES (None + 3 adversaries)
-    invaderDeck.ts      # invader card data + draw/advance
-    fear.ts             # 50 fear cards, fear pool, terror levels
-    blight.ts           # 24 blight cards
-    invaderActions.ts   # explore / build / ravage
-    gameState.ts        # central state, setup, blight cascade, win/loss check
-    turnManager.ts      # phase orchestrator
-  store/
-    gameStore.ts        # Zustand store wrapping engine state
-  components/
-    HomeView.tsx
-    SpiritSelectView.tsx
-    GameView.tsx
-    RulesView.tsx
-    board/
-      Map.tsx           # SVG <svg> root, lays out all 8 lands
-      LandShape.tsx     # one land polygon + its pieces
-      sprites/          # Explorer / Town / City / Dahan / Blight / Presence (SVG)
-  data/
-    boardLayout.ts      # hex layout, polygon vertices, terrain colors
-    rulesContent.ts     # rules-reference sections (transcribed)
-  styles/
-    globals.css
-tests/
-  engine/               # vitest tests for engine logic
-```
+Spirit Island is designed by R. Eric Reuss and published by Greater Than Games. This is an unofficial fan project; card and rules text belong to their owners (card text transcribed via the community Spirit Island Card Katalog). Board geometry is schematic: every land, terrain, adjacency and Setup piece matches the printed boards, but land shapes are computed, not traced.

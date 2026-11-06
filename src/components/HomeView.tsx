@@ -1,14 +1,39 @@
-import type { ViewName } from '../App';
+import { Logo } from './art';
 
-export default function HomeView({ onNavigate }: { onNavigate: (v: ViewName) => void }) {
+export default function HomeView({
+  onPlayLocal,
+  onPlayOnline,
+  onContinue,
+  canContinue,
+  onRules,
+}: {
+  onPlayLocal: () => void;
+  onPlayOnline: () => void;
+  onContinue: () => void;
+  canContinue: boolean;
+  onRules: () => void;
+}) {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
-      <h1>Spirit Island</h1>
-      <p style={{ color: 'var(--ink-dim)', marginBottom: '2rem' }}>Solo digital adaptation</p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', minWidth: '240px' }}>
-        <button className="primary" onClick={() => onNavigate('select')}>New Game</button>
-        <button onClick={() => onNavigate('rules')}>Rules</button>
+    <div className="home-view">
+      <Logo width={460} />
+      <p className="tagline">The island's Spirits rise against the Invaders. Grow, gather your power, and drive them into the sea.</p>
+      <div className="home-buttons">
+        {canContinue && (
+          <button className="primary" onClick={onContinue}>
+            Continue solo game
+          </button>
+        )}
+        <button className={canContinue ? '' : 'primary'} onClick={onPlayLocal}>
+          New solo / hot-seat game
+        </button>
+        <button onClick={onPlayOnline}>Play online with friends</button>
+        <button className="secondary" onClick={onRules}>
+          Rules reference
+        </button>
       </div>
+      <p className="fine-print">
+        A fan-made digital table for the base game of <em>Spirit Island</em> by R. Eric Reuss (Greater Than Games). Card text belongs to its owners.
+      </p>
     </div>
   );
 }
