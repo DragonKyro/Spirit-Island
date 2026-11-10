@@ -24,7 +24,7 @@ const ADVERSARY_OPTIONS = ADVERSARY_ORDER.map((id) => ({ id, name: ADVERSARIES[i
 /** Validate a setup that arrived over the network before handing it to the engine. */
 function asSetup(x: unknown): GameSetup | null {
   const s = x as GameSetup;
-  if (!s || s.v !== 1 || typeof s.seed !== 'number') return null;
+  if (!s || s.v !== 2 || typeof s.seed !== 'number') return null;
   if (!Array.isArray(s.spirits) || !s.spirits.length || s.spirits.length > 4) return null;
   if (!s.spirits.every((id) => SPIRIT_ORDER.includes(id))) return null;
   if (!Array.isArray(s.boards) || s.boards.length !== s.spirits.length || !s.boards.every((b) => BOARD_NAMES.includes(b))) return null;
@@ -44,7 +44,7 @@ function setupFromLobby(lobby: LobbyState): GameSetup {
   const seen = new Set<string>();
   const dedup = chosen.map((b) => (b && !seen.has(b) ? (seen.add(b), b) : null));
   return {
-    v: 1,
+    v: 2,
     seed: randomSeed(),
     spirits: seats.map((s) => s.spirit as SpiritId),
     boards: assignBoards(dedup),
@@ -143,7 +143,8 @@ function OnlineBar() {
 
 /**
  * Dev only: `?demo=river,shadows&steps=40&seed=7&adv=sweden&lvl=2` starts a local game and
- * auto-answers `steps` decisions (first non-pass option), for screenshots and debugging.
+ * auto-answers `steps` decisions (first non-pass option), for screenshots and debugging. `&ai=1,0` makes
+ * seats AI and `&engine=neural|search` picks the AI.
  */
 function devDemo(): boolean {
   if (!import.meta.env.DEV) return false;
@@ -153,8 +154,10 @@ function devDemo(): boolean {
   const spirits = demo.split(',').filter((s) => SPIRIT_ORDER.includes(s as SpiritId)) as SpiritId[];
   if (!spirits.length) return false;
   const adv = (q.get('adv') ?? 'none') as AdversaryId;
+  const engine = q.get('engine');
+  if (engine === 'neural' || engine === 'search') useGameStore.setState({ aiEngine: engine });
   useGameStore.getState().startLocal({
-    v: 1,
+    v: 2,
     seed: Number(q.get('seed') ?? 7),
     spirits,
     boards: BOARD_NAMES.slice(0, spirits.length) as BoardName[],
@@ -166,7 +169,7 @@ function devDemo(): boolean {
     const g = useGameStore.getState().game!;
     const d = g.gs.pending[0];
     if (!d) break;
-    const o = d.options.find((x) => !x.done && x.key !== 'cancel') ?? d.options[0];
+    const o = d.options.find((x) => !x.done) ?? d.options[0];
     useGameStore.getState().answer(d.id, o.key);
   }
   return true;

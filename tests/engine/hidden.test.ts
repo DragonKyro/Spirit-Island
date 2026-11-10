@@ -81,7 +81,7 @@ describe('determinize', () => {
   });
 
   it('keeps Fear Cards turned face-up where they are', () => {
-    const g = newGame({ v: 1, seed: 5, spirits: ['bringer'], boards: ['A'], adversary: 'none', adversaryLevel: 0 }, { quiet: true });
+    const g = newGame({ v: 2, seed: 5, spirits: ['bringer'], boards: ['A'], adversary: 'none', adversaryLevel: 0 }, { quiet: true });
     const gs = g.gs;
     const id = gs.fear.deck[2];
     gs.fear.revealed.push(id);

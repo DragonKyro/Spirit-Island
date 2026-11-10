@@ -20,7 +20,7 @@ describe('AI seats in local games', () => {
   it('an all-AI game plays itself, and pausing stops it', { timeout: 30000 }, async () => {
     const { useGameStore } = await import('../../src/store/gameStore');
     useGameStore.getState().setAIFast(true);
-    useGameStore.getState().startLocal({ v: 1, seed: 5, spirits: ['shadows'], boards: ['B'], adversary: 'none', adversaryLevel: 0, ai: [true] });
+    useGameStore.getState().startLocal({ v: 2, seed: 5, spirits: ['shadows'], boards: ['B'], adversary: 'none', adversaryLevel: 0, ai: [true] });
     await until(() => useGameStore.getState().game!.answers.length > 5);
     expect(useGameStore.getState().game!.answers.length).toBeGreaterThan(5);
     useGameStore.getState().setAIPaused(true);
@@ -33,7 +33,7 @@ describe('AI seats in local games', () => {
   it('in a mixed game the AI never answers the human seat', { timeout: 30000 }, async () => {
     const { useGameStore, isAIDecision } = await import('../../src/store/gameStore');
     useGameStore.getState().setAIFast(true);
-    useGameStore.getState().startLocal({ v: 1, seed: 6, spirits: ['river', 'earth'], boards: ['A', 'B'], adversary: 'none', adversaryLevel: 0, ai: [false, true] });
+    useGameStore.getState().startLocal({ v: 2, seed: 6, spirits: ['river', 'earth'], boards: ['A', 'B'], adversary: 'none', adversaryLevel: 0, ai: [false, true] });
     await until(() => useGameStore.getState().game!.answers.length > 0);
     await wait(300);
     const g = useGameStore.getState().game!;
@@ -44,7 +44,7 @@ describe('AI seats in local games', () => {
 });
 
 describe('AI seats in online games', () => {
-  const setup: GameSetup = { v: 1, seed: 8, spirits: ['river', 'earth'], boards: ['A', 'B'], adversary: 'none', adversaryLevel: 0, names: ['Hana', 'AI 1'], ai: [false, true] };
+  const setup: GameSetup = { v: 2, seed: 8, spirits: ['river', 'earth'], boards: ['A', 'B'], adversary: 'none', adversaryLevel: 0, names: ['Hana', 'AI 1'], ai: [false, true] };
 
   /** This device plays seat 0; its sends land in `log`, which comes back to it like a room's log. */
   async function table(runner: boolean) {
@@ -79,7 +79,7 @@ describe('AI seats in online games', () => {
 });
 
 describe('online undo with AI seats', () => {
-  const setup: GameSetup = { v: 1, seed: 9, spirits: ['river', 'earth', 'shadows'], boards: ['A', 'B', 'C'], adversary: 'none', adversaryLevel: 0, ai: [false, false, true] };
+  const setup: GameSetup = { v: 2, seed: 9, spirits: ['river', 'earth', 'shadows'], boards: ['A', 'B', 'C'], adversary: 'none', adversaryLevel: 0, ai: [false, false, true] };
 
   it('only the people vote, and the undo goes back past AI moves to the last human move', async () => {
     const { useGameStore } = await import('../../src/store/gameStore');

@@ -21,9 +21,10 @@ npm run dev          # http://localhost:5173/Spirit-Island/
 npm test             # vitest: engine + net
 npm run build        # tsc -b && vite build → dist/
 npm run deploy:rules # deploy database.rules.json (merged into the shared live rules)
+npm run train:build  # bundle training/spirit/env-server.ts for the Python learner (see training/README.md)
 ```
 
-Dev-only deep link: `?demo=river,shadows&steps=30&seed=7&adv=sweden&lvl=2` starts a local game and auto-answers N decisions (first non-pass option) — useful for screenshots.
+Dev-only deep link: `?demo=river,shadows&steps=30&seed=7&adv=sweden&lvl=2` starts a local game and auto-answers N decisions (first non-pass option) — useful for screenshots. Add `&ai=1,0` for AI seats, `&engine=neural|search`, and `&noworker` (AI on the main thread: headless Edge can wait for that under `--virtual-time-budget`, not for a Web Worker; its `--timeout` is ignored).
 
 ### npm registry
 
@@ -53,10 +54,13 @@ src/
     hidden.ts             # hidden information: determinize() re-deals decks etc. from public facts
     observe.ts            # neural-AI input: observe(gs, decision) → token blocks from public information
     ai.ts                 # heuristic AI: evaluate(), rollouts / lookahead on determinized replays, simulated card values
+    nn/                   # trained neural player: fit.ts (cap tokens to the trained sizes), runtime.ts (int8 policy file → logits),
+                          # neural.ts (greedy choice + stall guard, falls back to ai.ts), spirit-policy.bin (the shipped network)
   net/                    # Firebase room transport (+ in-memory fake for tests); game-agnostic
   store/
     gameStore.ts          # engine wrapper: local save/undo, AI seats (local + online), online apply via action log
-    aiClient.ts / aiWorker.ts # run the AI in a Web Worker (inline fallback)
+    aiClient.ts / aiWorker.ts # run the AI in a Web Worker (inline fallback); aiDecide.ts = one decision (engine: neural | search)
+    neuralPolicy.ts       # lazy fetch of the shipped network (Vite ?url asset)
     networkStore.ts       # rooms, lobby, presence, chat, action log
   components/
     HomeView, SetupView, GameView, RulesView
@@ -75,6 +79,8 @@ src/
     rulesContent.ts       # rules reference text
 public/cards/             # official card scans (base game only), named by engine id
 tests/engine, tests/net
+training/                 # neural-AI training (offline, never shipped): spirit/vec-env.ts + env-server.ts (TS side),
+                          # env_client.py, model.py, train.py, evaluate.py (Python, conda env `train`); README.md
 ```
 
 ## Architecture Conventions
@@ -82,6 +88,7 @@ tests/engine, tests/net
 - **Engine is pure and deterministic.** A game = `GameSetup` (incl. seed) + ordered `Answer[]`. Never use `Math.random`, `Date`, or iteration over unordered sources in `src/engine/`; all randomness goes through `gs.rng`. This is what makes undo, saves and online sync work.
 - **Choices are generators.** Any logic that may need a player decision is a generator (`Eff<T>`) and asks via `choose()` / `confirm()` (which auto-pick when only one option exists). Never block on input any other way. Decisions carry `owner` (spirit index, or -1 for "any player"), a `kind` (`DECISION_KINDS`; inferred from the options unless the call site passes one — pass it when the meaning isn't obvious from the options, e.g. `cascade` vs `presenceAdd`), `sourceId` (from `gs.activityId` while a Power / Fear Card resolves, else pass `rule:<name>`) and `about` (land acted on, piece moving, step n of max). Put machine-readable facts on `Option` (`space`, `card`, `piece`, `element`, `spirit`), never only in labels.
 - **Hidden information stays hidden.** `GameState` holds deck orders, removed and face-down cards, the unflipped Blight Card and the RNG; no player knows them. AI search must simulate on `determinize()`d copies (seeded from public facts only), and `observe()` must only read public information (tests check observations don't change when hidden parts are re-dealt). Option keys can carry hidden ids (Spirits May Yet Dream): don't read keys as features.
+- **The engine is the rules, not the interface.** Offer only choices the rules give (no "Cancel", no "back"): a chosen Power is targeted, a single legal option resolves by itself, and optional effects get an explicit decline option (e.g. "Don't repeat"). Interface conveniences belong in the UI (the ↶ Back button at Power targets is Undo). An escape hatch in the engine is a loop for an AI to find: the trained network learned to stall forever on Cancel, and later on "Reclaim One → None" in the card-play menu; a menu choice must use up what it chooses. Every phase must end (`tests/engine/rules.test.ts` checks random play never needs 250 answers in one phase).
 - **Invalid answers are ignored**, never thrown: `applyAnswer` checks the decision id, the option key and (online) the seat, so stale answers are dropped identically on every device.
 - **Game over is an exception.** `checkEnd()` throws `GameOver` (victory / defeat / sacrifice victory) from wherever a condition is met; the driver catches it.
 - **Card / spirit data and effects are split** (`cardData.ts` vs `cards.ts`, `spiritData.ts` vs `innates.ts`) to avoid import cycles. Every card id must have an effect (enforced by `tests/engine/coverage.test.ts`).
@@ -105,6 +112,8 @@ tests/engine, tests/net
 
 - Engine changes need a vitest test; run the fuzz suite (`tests/engine/fuzz.test.ts`) — it plays full random games for every Spirit, adversary and player count and checks replay determinism.
 - AI: `ai.ts` never mutates a live game — it simulates on quiet, determinized replays (`simFrom`) or log-free copies (`privateCopy`). Top-level menus are marked with `Decision.menu` so lookahead knows where an action ends. Decisions are scored by rollouts to the next turn's Growth (`DEEP` flags; `fastPolicy` plays the rollout). Weights are `W` (per-Spirit overrides in `SPIRIT_W`). Re-run the opt-in benchmark after changing the AI: `AI_BENCH=1 npx vitest run tests/engine/aiBench.test.ts` (env: `AI_SEEDS`, `AI_SPIRITS`, `AI_ADV`/`AI_LVL`, `AI_W`/`AI_SW` JSON weight overrides, `AI_DEEP=0`, `AI_DEEP_ALL=0`, `AI_HORIZON`, `AI_SAMPLES`); about 2 minutes for 12 seeds.
+- Neural AI: solo games only (`neuralSupports`), chosen with `gameStore.aiEngine` ('neural' default, persisted; the header toggle). It must never block a game: `neuralChoose` hands over to `aiChoose` after `STALL_LIMIT` answers in one phase, `decide()` falls back to the search AI if the file fails to load. To ship a new network: `python training/spirit/ship.py RUN@N --out src/engine/nn/spirit-policy.bin`, then compare with `evaluate.py suite ship:…bin` vs `heuristic` (training/README.md). Changing `observe()` needs `OBS_VERSION` bumped and a retrain; `fit.ts` is shared by training and the app on purpose.
+- Training (training/README.md): the conda env `train` must be activated (CUDA DLLs). Runs land in `training/runs/` (git-ignored). The env answers single-option decisions itself; anything that changes what `observe()` produces needs an `OBS_VERSION` bump, which invalidates saved policies. Other projects' training jobs may share the GPU — check `nvidia-smi` before reading speed numbers.
 - Simulations and training should use `newGame(setup, { quiet: true })` / `replay(…, { quiet: true })`: same play, no log (about half the time). Bump `OBS_VERSION` in observe.ts when the observation layout or a vocabulary changes.
 - Online AI seats (`Seat.ai`, uuid `ai-…`) are played by one device, `aiRunnerUuid(lobby, presence)` (the host, else the first connected person); it sends their answers with the AI seat as `s`. Duplicate sends are harmless (stale answers are dropped). Undo votes count only human seats (`humanSeats`) and undo back to the last human move.
-- Bump `GameSetup.v` if saved games / logs from older builds would replay differently.
+- Bump `GameSetup.v` if saved games / logs from older builds would replay differently (v2: Cancel removed from Power targeting; v1 saves and rooms are not loaded).

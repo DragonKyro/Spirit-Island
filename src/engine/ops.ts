@@ -821,12 +821,16 @@ export function reclaimAll(gs: GameState, s: SpiritState): void {
   s.discard = [];
 }
 
-export function* reclaimOne(gs: GameState, s: SpiritState, why = 'Reclaim One'): Eff<boolean> {
+/**
+ * Return 1 card from the discard to hand. `optional`: may reclaim none (Growth); from the card-play
+ * menu the choice to Reclaim One was already made, so a card must be picked (no way back to the menu).
+ */
+export function* reclaimOne(gs: GameState, s: SpiritState, why = 'Reclaim One', optional = true): Eff<boolean> {
   if (!s.discard.length) return false;
   const k = yield* choose(gs, s.index, `${why}: return 1 card from your discard to hand`, [
     ...s.discard.map((id) => ({ key: id, label: CARDS[id].name, card: id })),
-    { key: 'none', label: 'None', done: true },
-  ], { always: true, source: why, kind: 'cardReclaim' });
+    ...(optional ? [{ key: 'none', label: 'None', done: true }] : []),
+  ], { always: optional, source: why, kind: 'cardReclaim' });
   if (k === 'none') return false;
   s.discard.splice(s.discard.indexOf(k), 1);
   s.hand.push(k);
@@ -910,7 +914,21 @@ export function landTargets(gs: GameState, s: SpiritState, r: RangeSpec, f: Land
   return out;
 }
 
-export function* chooseLandTarget(gs: GameState, s: SpiritState, r: RangeSpec, f: LandFilter, source: string, bonus = 0): Eff<Space | null> {
+/**
+ * Choose a land for a Power. Using a Power you chose means targeting it (the rules have no
+ * "cancel": not using a Power is passing at the Powers menu), so a single legal land is taken
+ * without asking. `optional` (e.g. "Don't repeat") offers declining, for effects the card says
+ * you *may* use. Returns null when there is no legal land, or when declined.
+ */
+export function* chooseLandTarget(
+  gs: GameState,
+  s: SpiritState,
+  r: RangeSpec,
+  f: LandFilter,
+  source: string,
+  bonus = 0,
+  opts: { optional?: string } = {},
+): Eff<Space | null> {
   const cands = landTargets(gs, s, r, f, bonus);
   if (!cands.length) return null;
   const options: Option[] = cands.map(({ sp, paid }) => ({
@@ -919,24 +937,23 @@ export function* chooseLandTarget(gs: GameState, s: SpiritState, r: RangeSpec, f
     space: sp.id,
     hint: paid ? 'pay 1 Energy (Shadows of the Dahan)' : undefined,
   }));
-  options.push({ key: 'cancel', label: 'Cancel', done: true });
+  if (opts.optional) options.push({ key: 'skip', label: opts.optional, done: true });
   const k = yield* choose(gs, s.index, `${source}: choose a target land (${FILTER_LABEL(f)}, Range ${r.n + bonus + s.rangeBonus}${r.sacred ? ' from Sacred Site' : ''})`, options, {
-    always: true,
     source,
     kind: 'targetLand',
   });
-  if (k === 'cancel') return null;
+  if (k === 'skip') return null;
   const pick = cands.find((c) => c.sp.id === k)!;
   if (pick.paid) gainEnergy(gs, s, -1, 'Shadows of the Dahan');
   return pick.sp;
 }
 
+/** Choose a Spirit for a Power (no "cancel", as for lands; solo games just target yourself). */
 export function* chooseSpiritTarget(gs: GameState, s: SpiritState, who: 'any' | 'another', source: string): Eff<SpiritState | null> {
   const cands = gs.spirits.filter((x) => who === 'any' || x !== s || gs.spirits.length === 1);
+  if (!cands.length) return null;
   const options: Option[] = cands.map((x) => ({ key: String(x.index), label: x === s ? `${x.name} (yourself)` : x.name, spirit: x.index }));
-  options.push({ key: 'cancel', label: 'Cancel', done: true });
-  const k = yield* choose(gs, s.index, `${source}: choose a target Spirit`, options, { always: true, source, kind: 'targetSpirit' });
-  if (k === 'cancel') return null;
+  const k = yield* choose(gs, s.index, `${source}: choose a target Spirit`, options, { source, kind: 'targetSpirit' });
   return gs.spirits[Number(k)];
 }
 

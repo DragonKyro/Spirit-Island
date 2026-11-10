@@ -14,7 +14,7 @@ export function playRandomly(game: Game, seed: number, visit?: (g: Game, d: Deci
     const pending = game.gs.pending;
     const dec = pending[nextInt(r, pending.length)];
     visit?.(game, dec);
-    const nonDone = dec.options.filter((o) => !o.done && o.key !== 'cancel');
+    const nonDone = dec.options.filter((o) => !o.done);
     const pool = nonDone.length && nextInt(r, 4) !== 0 ? nonDone : dec.options;
     applyAnswer(game, { d: dec.id, k: pool[nextInt(r, pool.length)].key }, dec.owner === -1 ? undefined : dec.owner);
   }
@@ -27,9 +27,9 @@ const ADVS: [AdversaryId, number][] = [['none', 0], ['prussia', 6], ['england', 
 export function sampleSetups(): GameSetup[] {
   const out: GameSetup[] = SPIRIT_ORDER.map((sid, i) => {
     const [adv, lvl] = ADVS[i % ADVS.length];
-    return { v: 1, seed: 300 + i * 7, spirits: [sid], boards: [BOARDS[i % 4]], adversary: adv, adversaryLevel: lvl };
+    return { v: 2, seed: 300 + i * 7, spirits: [sid], boards: [BOARDS[i % 4]], adversary: adv, adversaryLevel: lvl };
   });
-  out.push({ v: 1, seed: 991, spirits: ['ocean', 'bringer', 'green'] as SpiritId[], boards: ['A', 'B', 'C'], adversary: 'sweden', adversaryLevel: 4 });
+  out.push({ v: 2, seed: 991, spirits: ['ocean', 'bringer', 'green'] as SpiritId[], boards: ['A', 'B', 'C'], adversary: 'sweden', adversaryLevel: 4 });
   return out;
 }
 

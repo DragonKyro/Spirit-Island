@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "train:build": "vite build --config training/vite.config.ts",
     "deploy:rules": "npx -y firebase-tools@latest deploy --only database"
   },
   "dependencies": {

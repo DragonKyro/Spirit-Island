@@ -162,8 +162,11 @@ export interface LogEntry {
 }
 
 export interface GameSetup {
-  /** protocol/rules version */
-  v: 1;
+  /**
+   * protocol / rules version. 2: Powers are targeted without a Cancel option (a v1 log with a
+   * Cancel answer would replay differently, so v1 saves and rooms are not loaded).
+   */
+  v: 2;
   seed: number;
   /** spirit per player, in seat order */
   spirits: SpiritId[];

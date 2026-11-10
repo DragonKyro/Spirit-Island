@@ -21,7 +21,7 @@ export function playAI(g: Game, maxSteps = 4000): number {
 describe('heuristic AI', () => {
   it('plays complete games without getting stuck', () => {
     for (const [sid, adv] of [['river', 'none'], ['lightning', 'prussia']] as [SpiritId, AdversaryId][]) {
-      const setup: GameSetup = { v: 1, seed: 31, spirits: [sid], boards: ['A'], adversary: adv, adversaryLevel: adv === 'none' ? 0 : 1 };
+      const setup: GameSetup = { v: 2, seed: 31, spirits: [sid], boards: ['A'], adversary: adv, adversaryLevel: adv === 'none' ? 0 : 1 };
       const g = newGame(setup);
       const steps = playAI(g);
       expect(g.gs.result.kind, `${sid} stuck after ${steps}`).not.toBe('IN_PROGRESS');

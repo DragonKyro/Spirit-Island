@@ -10,7 +10,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const setup: GameSetup = { v: 1, seed: 21, spirits: ['river', 'earth'], boards: ['A', 'B'], adversary: 'none', adversaryLevel: 0 };
+const setup: GameSetup = { v: 2, seed: 21, spirits: ['river', 'earth'], boards: ['A', 'B'], adversary: 'none', adversaryLevel: 0 };
 
 /** The first two answers of a fresh game (each spirit's first Growth choice). */
 function firstMoves() {

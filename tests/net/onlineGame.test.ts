@@ -32,7 +32,7 @@ const snapshot = (setup: GameSetup, log: unknown[]) => {
 
 describe('online Spirit Island game', () => {
   it('two devices play simultaneously and stay in sync', async () => {
-    const setup: GameSetup = { v: 1, seed: 99, spirits: ['river', 'earth'], boards: ['A', 'B'], adversary: 'england', adversaryLevel: 1, names: ['Hana', 'Kai'] };
+    const setup: GameSetup = { v: 2, seed: 99, spirits: ['river', 'earth'], boards: ['A', 'B'], adversary: 'england', adversaryLevel: 1, names: ['Hana', 'Kai'] };
     const { devices } = await startedRoom([['guest-uuid', 'Kai']], setup);
     expect(devices.every((d) => d.net().start)).toBe(true);
     const rng = makeRng(5);
@@ -46,7 +46,7 @@ describe('online Spirit Island game', () => {
         const mine = g.gs.pending.filter((d) => d.owner === seat || (d.owner === -1 && seat === 0));
         if (!mine.length) return;
         const dec = mine[nextInt(rng, mine.length)];
-        const pool = dec.options.filter((o) => !o.done && o.key !== 'cancel');
+        const pool = dec.options.filter((o) => !o.done);
         const opt = (pool.length && nextInt(rng, 4) ? pool : dec.options)[0];
         sends.push(dev.net().sendAction({ d: dec.id, k: opt.key, s: seat }));
         moves++;
@@ -63,7 +63,7 @@ describe('online Spirit Island game', () => {
   }, 60000);
 
   it("a device's answer for the other seat's decision is ignored", async () => {
-    const setup: GameSetup = { v: 1, seed: 7, spirits: ['shadows', 'lightning'], boards: ['C', 'D'], adversary: 'none', adversaryLevel: 0 };
+    const setup: GameSetup = { v: 2, seed: 7, spirits: ['shadows', 'lightning'], boards: ['C', 'D'], adversary: 'none', adversaryLevel: 0 };
     const { devices } = await startedRoom([['guest-uuid', 'Kai']], setup);
     const before = snapshot(setup, devices[0].net().actions);
     const hostsDecision = before.g.gs.pending.find((d) => d.owner === 0)!;

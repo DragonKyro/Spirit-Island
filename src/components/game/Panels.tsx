@@ -63,6 +63,7 @@ export function DecisionPanel({
   onSuggest,
   aiPaused = false,
   canPause = false,
+  onBack,
 }: {
   gs: GameState;
   mine: Decision[];
@@ -80,6 +81,8 @@ export function DecisionPanel({
   aiPaused?: boolean;
   /** local games have a Pause AI button */
   canPause?: boolean;
+  /** local games: take back the Power just chosen (Undo), offered at its target prompt */
+  onBack?: () => void;
 }) {
   const byAI = (d: Decision) => (d.owner >= 0 ? !!aiOwners?.[d.owner] : !!aiOwners?.every(Boolean));
   const ownerName = (d: Decision) =>
@@ -137,13 +140,18 @@ export function DecisionPanel({
               ))}
             </div>
             )}
-            {done.length > 0 && (
+            {(done.length > 0 || (onBack && (d.kind === 'targetLand' || d.kind === 'targetSpirit'))) && (
               <div className="dp-done">
                 {done.map((o) => (
                   <button key={o.key} className={`secondary${hint && hint.d === d.id && hint.k === o.key ? ' hinted' : ''}`} onClick={() => onAnswer(d.id, o.key)}>
                     {o.label}
                   </button>
                 ))}
+                {onBack && (d.kind === 'targetLand' || d.kind === 'targetSpirit') && (
+                  <button className="secondary" onClick={onBack} title="Chose the wrong Power? Undo that choice (the rules have no cancel once a Power is chosen)">
+                    ↶ Back
+                  </button>
+                )}
               </div>
             )}
           </div>

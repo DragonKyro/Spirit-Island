@@ -195,7 +195,9 @@ function* playCards(gs: GameState, s: SpiritState): Eff {
     });
     if (k === 'done') return;
     if (k === 'reclaim') {
-      if (yield* reclaimOne(gs, s)) s.reclaimOneUsed = true;
+      // choosing it is using it (as with a Power: no picking None and coming back)
+      s.reclaimOneUsed = true;
+      yield* reclaimOne(gs, s, 'Reclaim One', false);
       continue;
     }
     const id = k.slice(5);

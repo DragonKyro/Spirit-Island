@@ -34,7 +34,7 @@ const shortCaption = (t: string) => {
 };
 
 export default function GameView({ onExit, online, offline }: { onExit: () => void; online?: React.ReactNode; offline?: number[] }) {
-  const { game, mode, seat, answer, undo, canUndo, aiPaused, setAIPaused, aiFast, setAIFast, aiThinking, hint, suggest } = useGameStore();
+  const { game, mode, seat, answer, undo, canUndo, aiPaused, setAIPaused, aiFast, setAIFast, aiThinking, hint, suggest, aiEngine, setAIEngine } = useGameStore();
   useGameStore((s) => s.tick); // re-render on every engine step
   const [tab, setTab] = useState<number | null>(null);
   const [pop, setPop] = useState<Popover | null>(null);
@@ -112,6 +112,15 @@ export default function GameView({ onExit, online, offline }: { onExit: () => vo
             ▶ Invaders
           </button>
         )}
+        {mode === 'local' && game.setup.spirits.length === 1 && (
+          <button
+            className="secondary"
+            onClick={() => setAIEngine(aiEngine === 'neural' ? 'search' : 'neural')}
+            title="Which AI plays and gives suggestions: the trained neural network (instant, solo games only) or the search AI (slower, looks ahead, plays any table)"
+          >
+            {aiEngine === 'neural' ? '🧠 Neural AI' : '🔍 Search AI'}
+          </button>
+        )}
         {mode === 'local' && game.setup.ai?.some(Boolean) && (
           <>
             <button className="secondary" onClick={() => setAIPaused(!aiPaused)} title="Pause or resume the AI players">
@@ -186,6 +195,7 @@ export default function GameView({ onExit, online, offline }: { onExit: () => vo
             onSuggest={suggest}
             aiPaused={mode === 'local' && aiPaused}
             canPause={mode === 'local'}
+            onBack={mode === 'local' && canUndo() ? () => { setPop(null); undo(); } : undefined}
           />
           <nav className="mobile-tabs" aria-label="Panels">
             {(['spirit', 'invaders', 'log'] as const).map((t) => (

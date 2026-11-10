@@ -14,7 +14,7 @@ function playRandomly(game: Game, seed: number, maxSteps = 60000): number {
     const pending = game.gs.pending;
     expect(pending.length).toBeGreaterThan(0);
     const dec = pending[nextInt(r, pending.length)];
-    const nonDone = dec.options.filter((o) => !o.done && o.key !== 'cancel');
+    const nonDone = dec.options.filter((o) => !o.done);
     const pool = nonDone.length && nextInt(r, 4) !== 0 ? nonDone : dec.options;
     const opt = pool[nextInt(r, pool.length)];
     const ok = applyAnswer(game, { d: dec.id, k: opt.key }, dec.owner === -1 ? undefined : dec.owner);
@@ -40,7 +40,7 @@ describe('engine fuzz: full random games finish', () => {
     it(`solo ${sid}`, () => {
       for (let i = 0; i < 4; i++) {
         const [adv, lvl] = ADVS[(i * 3 + sid.length) % ADVS.length];
-        const setup: GameSetup = { v: 1, seed: 1000 + i * 17 + sid.length, spirits: [sid], boards: [BOARDS[i % 4]], adversary: adv, adversaryLevel: lvl };
+        const setup: GameSetup = { v: 2, seed: 1000 + i * 17 + sid.length, spirits: [sid], boards: [BOARDS[i % 4]], adversary: adv, adversaryLevel: lvl };
         const g = newGame(setup);
         const steps = playRandomly(g, 77 + i);
         expect(g.gs.result.kind, `stuck after ${steps} steps`).not.toBe('IN_PROGRESS');
@@ -55,7 +55,7 @@ describe('engine fuzz: full random games finish', () => {
         const uniq = [...new Set(spirits)];
         while (uniq.length < n) uniq.push(SPIRIT_ORDER.find((s) => !uniq.includes(s))!);
         const [adv, lvl] = ADVS[(n + i) % ADVS.length];
-        const setup: GameSetup = { v: 1, seed: 5000 + n * 31 + i, spirits: uniq, boards: BOARDS.slice(0, n), adversary: adv, adversaryLevel: lvl };
+        const setup: GameSetup = { v: 2, seed: 5000 + n * 31 + i, spirits: uniq, boards: BOARDS.slice(0, n), adversary: adv, adversaryLevel: lvl };
         const g = newGame(setup);
         playRandomly(g, 900 + n * 7 + i);
         expect(g.gs.result.kind).not.toBe('IN_PROGRESS');
@@ -64,7 +64,7 @@ describe('engine fuzz: full random games finish', () => {
   });
 
   it('replaying the answer log reproduces the exact state', () => {
-    const setup: GameSetup = { v: 1, seed: 4242, spirits: ['shadows', 'thunderspeaker'], boards: ['B', 'C'], adversary: 'sweden', adversaryLevel: 3 };
+    const setup: GameSetup = { v: 2, seed: 4242, spirits: ['shadows', 'thunderspeaker'], boards: ['B', 'C'], adversary: 'sweden', adversaryLevel: 3 };
     const g = newGame(setup);
     playRandomly(g, 4243, 400);
     const again = replay(setup, g.answers);

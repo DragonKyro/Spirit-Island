@@ -16,7 +16,7 @@ Play it at: **https://klui.github.io/Spirit-Island/**
 - **Online play** through Firebase: create a room, share the link, each player takes a seat and a Spirit; play is simultaneous where the rules allow.
 - Solo games save automatically in the browser, with unlimited Undo; online games support undo by agreement.
 - Invader Phase playback, an illustrated rules reference with engine-rendered examples, and game history & stats.
-- **Heuristic AI**: let the AI play any Spirit as your teammate (or all of them, to watch), locally or as AI players in online rooms, and ask it for a 💡 suggestion on any decision.
+- **AI players**: let the AI play any Spirit as your teammate (or all of them, to watch), locally or as AI players in online rooms, and ask it for a 💡 suggestion on any decision. Solo games use a **trained neural network** by default (instant; wins about 19% of a mixed-difficulty test suite against the search AI's 12%); other tables, and the 🔍 Search AI option, use the heuristic search AI.
 - All art is original inline SVG (pieces, icons, terrain, Spirit emblems), inspired by the rulebook's iconography.
 
 ## Tech stack
@@ -72,7 +72,12 @@ Ongoing list — check items off (or delete them) as they land.
 - [ ] Stronger play, round 2: Ocean's Hungry Grasp never wins (0/12) and Thunderspeaker rarely does (1/12): they need Spirit-specific plans (Ocean: drown Invaders by pushing them into the Ocean; Thunderspeaker: move Presence with the Dahan). Two-turn rollouts won no more games and were 1.6× slower. Also benchmark against the adversaries.
 - [x] AI seats in online rooms: the host adds AI players in the lobby; the host's device plays them (or the first connected player while the host is away), and only the people vote on undo.
 - [x] Neural AI groundwork (engine): `Decision.kind` / `sourceId` / `about`, `determinize()` (hidden information), `observe()` (public-information token encoding, ~80 µs per decision), quiet games (no log, ~2× faster simulation).
-- [ ] Neural AI training: Node self-play workers + batched GPU inference, PyTorch learner (imitation of the heuristic AI for the first 100 updates, then PPO with potential-based shaping from `evaluate()` and a per-Spirit difficulty curriculum), export int8 weights and a small TypeScript forward pass for the Web Worker.
+- [x] Neural AI training pipeline (`training/`, see training/README.md): Node env workers + batched GPU inference, PyTorch learner (100 updates imitating the heuristic AI with DAgger, value warm-up, then PPO with a fading KL pull toward the imitation policy, potential-based shaping from `evaluate()` and a per-Spirit difficulty curriculum), fixed eval suites with a heuristic baseline.
+- [x] First full training run (5,000 updates, 9.5 h): matched the heuristic from update ~500 to 1200, then learned to stall and collapsed. See training/README.md ("First run") for the diagnosis.
+- [x] Ship a trained policy: update 1000 as a 0.72 MB int8 file, TypeScript forward pass (matches PyTorch to 3e-6) in the Web Worker, stall guard, 🧠 Neural / 🔍 Search toggle for solo games. On 576 test games (8 Spirits × no adversary / Sweden 2 / England 3 / Prussia 6, old rules): 19.3% wins vs the search AI's 12.2%. Under rules v2 (192 games): the network alone 18.8% vs 12.5%.
+- [x] Block the loops at their source: the rules have no Cancel at Power targets, and choosing Reclaim One in the card-play menu uses it (rules version 2; ↶ Back in the app is Undo). Search AI benchmark under the new rules: 25/96 (31/96 when it could cancel).
+- [ ] Training round 2, updates 1000 → 5000 (prepared, not started: one network; curriculum by adversary level, current rung + rehearsal below only, promotion on greedy probe games; more games for the Spirits that lose more; best-checkpoint anchor and rollback; KL-stopped PPO at lr 1e-4; constant shaping 0.1 — see training/README.md), then re-ship if it beats update 1000.
+- [ ] Neural AI for 2-4 Spirit tables (train with `--players`); today they use the search AI.
 
 **Content**
 - [ ] Base-game Scenarios (Blitz, Guard the Isle's Heart, Rituals of Terror, Dahan Insurrection).

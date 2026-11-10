@@ -122,7 +122,7 @@ function* dahanEachHitDifferent(ctx: Ctx, sp: Space): Eff {
 function* repeatOn(ctx: Ctx, el: Elements, effect: CardEffect, cardId: string, label: string): Eff {
   const c = CARDS[cardId];
   if (c.target.kind !== 'land') return;
-  const t = yield* chooseLandTarget(ctx.gs, ctx.self, c.target.range, c.target.filter, `${label} (Repeat)`);
+  const t = yield* chooseLandTarget(ctx.gs, ctx.self, c.target.range, c.target.filter, `${label} (Repeat)`, 0, { optional: "Don't repeat" });
   if (!t) return;
   yield* effect({ ...ctx, target: t, dreamed: new Set(), dreamDmg: new Map(), isRepeat: true }, el);
 }

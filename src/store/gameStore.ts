@@ -15,9 +15,20 @@ import type { Game, SeatedAnswer } from '../engine/game';
 import type { GameSetup } from '../engine/state';
 import { recordGame } from './history';
 import { askAI } from './aiClient';
+import type { AIEngine } from './aiDecide';
 import type { Decision } from '../engine/decide';
 
 const SAVE_KEY = 'spirit-island:solo:v1';
+const ENGINE_KEY = 'spirit-island:ai-engine';
+
+/** The neural network plays solo games unless the player picked the search AI. */
+function loadEngine(): AIEngine {
+  try {
+    return localStorage.getItem(ENGINE_KEY) === 'search' ? 'search' : 'neural';
+  } catch {
+    return 'neural';
+  }
+}
 
 interface SavedGame {
   setup: GameSetup;
@@ -54,6 +65,9 @@ interface GameStore {
   aiPaused: boolean;
   aiThinking: number | null;
   aiFast: boolean;
+  /** which AI plays the AI seats and gives suggestions (the neural one only plays solo games) */
+  aiEngine: AIEngine;
+  setAIEngine: (e: AIEngine) => void;
   /** the AI's suggestion for a human decision */
   hint: { d: number; k: string } | null;
   setAIPaused: (p: boolean) => void;
@@ -103,7 +117,7 @@ function loadSave(): SavedGame | null {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const d = JSON.parse(raw) as SavedGame;
-    if (!d?.setup || d.setup.v !== 1 || !Array.isArray(d.answers)) return null;
+    if (!d?.setup || d.setup.v !== 2 || !Array.isArray(d.answers)) return null;
     return d;
   } catch {
     return null;
@@ -189,6 +203,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   aiPaused: false,
   aiThinking: null,
   aiFast: false,
+  aiEngine: loadEngine(),
   aiRunner: false,
   hint: null,
 
@@ -197,6 +212,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!p) get().runAI();
   },
   setAIFast: (f) => set({ aiFast: f }),
+  setAIEngine: (e) => {
+    try {
+      localStorage.setItem(ENGINE_KEY, e);
+    } catch {
+      // storage unavailable: the choice lasts for this session
+    }
+    set({ aiEngine: e, hint: null });
+  },
 
   runAI: () => {
     const st = get();
@@ -209,7 +232,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!d || (online && d.id === aiSent)) return;
     set({ aiThinking: d.id });
     const started = Date.now();
-    askAI(game.setup, game.answers.slice(), d.id).then((k) => {
+    askAI(game.setup, game.answers.slice(), d.id, st.aiEngine).then((k) => {
       const wait = Math.max(0, (get().aiFast ? AI_DELAY_FAST : AI_DELAY) - (Date.now() - started));
       setTimeout(() => {
         set({ aiThinking: null });
@@ -242,7 +265,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   suggest: (d) => {
     const { game } = get();
     if (!game) return;
-    askAI(game.setup, game.answers.slice(), d).then((k) => {
+    askAI(game.setup, game.answers.slice(), d, get().aiEngine).then((k) => {
       if (k && get().game === game) set({ hint: { d, k } });
     });
   },

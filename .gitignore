@@ -1,6 +1,8 @@
 # Node / Vite
 node_modules/
 dist/
+# training runs: checkpoints, policies, logs (training/dist is covered by dist/)
+training/runs/
 dist-ssr/
 .vite/
 *.local

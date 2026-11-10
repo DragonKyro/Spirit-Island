@@ -39,7 +39,7 @@ import { cardImage } from '../../data/cardImages';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-const SOLO: GameSetup = { v: 1, seed: 11, spirits: ['river'], boards: ['A'], adversary: 'none', adversaryLevel: 0 };
+const SOLO: GameSetup = { v: 2, seed: 11, spirits: ['river'], boards: ['A'], adversary: 'none', adversaryLevel: 0 };
 
 /** Board A with no pieces at all (Setup phase: no win/loss checks). */
 function emptyBoard(setup: Partial<GameSetup> = {}): GameState {

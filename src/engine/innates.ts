@@ -107,7 +107,7 @@ export const INNATE_EFFECTS: Record<string, InnateEffect> = {
     let sp = ctx.target!;
     for (let i = 0; i < times; i++) {
       if (i > 0) {
-        const next = yield* chooseLandTarget(ctx.gs, ctx.self, { n: 0 }, { t: 'any' }, 'Creepers Tear into Mortar (Repeat)');
+        const next = yield* chooseLandTarget(ctx.gs, ctx.self, { n: 0 }, { t: 'any' }, 'Creepers Tear into Mortar (Repeat)', 0, { optional: "Don't repeat" });
         if (!next) break;
         sp = next;
       }

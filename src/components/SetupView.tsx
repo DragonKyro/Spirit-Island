@@ -40,7 +40,7 @@ export default function SetupView({ onStart, onBack }: { onStart: (s: GameSetup)
   const lvl = adversaryLevel(adv, level);
 
   const start = () =>
-    onStart({ v: 1, seed: randomSeed(), spirits, boards: assignBoards(boards), adversary: adv, adversaryLevel: adv === 'none' ? 0 : level, ...(ai.some(Boolean) ? { ai } : {}) });
+    onStart({ v: 2, seed: randomSeed(), spirits, boards: assignBoards(boards), adversary: adv, adversaryLevel: adv === 'none' ? 0 : level, ...(ai.some(Boolean) ? { ai } : {}) });
 
   return (
     <div className="setup-view">

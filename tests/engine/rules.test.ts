@@ -11,7 +11,7 @@ import { count, dahanCount, presenceOnIsland, space } from '../../src/engine/sta
 import type { GameSetup, GameState, InvaderCard } from '../../src/engine/state';
 import type { PieceKind } from '../../src/engine/types';
 
-const solo = (over: Partial<GameSetup> = {}): GameSetup => ({ v: 1, seed: 1, spirits: ['river'], boards: ['A'], adversary: 'none', adversaryLevel: 0, ...over });
+const solo = (over: Partial<GameSetup> = {}): GameSetup => ({ v: 2, seed: 1, spirits: ['river'], boards: ['A'], adversary: 'none', adversaryLevel: 0, ...over });
 
 /** Run an engine generator to completion, answering each decision with the first (or a chosen) option. */
 function run<T>(gen: Eff<T>, pick: (labels: string[]) => number = () => 0): T {
@@ -260,5 +260,90 @@ describe('power menu', () => {
     expect(availablePowers(gs, s, 'SLOW').map((p) => p.key)).not.toContain('card:shatter-homesteads');
     space(gs, 'A1').presence[0] = 2;
     expect(availablePowers(gs, s, 'SLOW').map((p) => p.key)).toContain('card:shatter-homesteads');
+  });
+});
+
+describe('targeting Powers (no cancel)', () => {
+  it('a chosen Power is targeted and resolved: target prompts offer no way out, and it is not offered again', () => {
+    for (const sid of SPIRIT_ORDER) {
+      const g = newGame(solo({ spirits: [sid], seed: 3 }), { quiet: true });
+      let targets = 0;
+      let menus = 0;
+      let last: { owner: number; key: string; when: string } | null = null;
+      for (let steps = 0; g.gs.result.kind === 'IN_PROGRESS' && steps < 3000; steps++) {
+        const d = g.gs.pending[0];
+        const when = `${g.gs.turn}:${g.gs.phase}`;
+        if ((d.kind === 'targetLand' || d.kind === 'targetSpirit') && !/\(Repeat\)/.test(d.prompt)) {
+          targets++;
+          expect(d.options.every((o) => !o.done), d.prompt).toBe(true);
+        }
+        if (d.menu === 'power') {
+          menus++;
+          // the Power chosen last time was used: it is not offered again this phase (it was with "cancel")
+          if (last && last.owner === d.owner && last.when === when && !last.key.startsWith('repeat:')) {
+            expect(d.options.some((o) => o.key === last!.key), `${sid}: ${last.key} offered again`).toBe(false);
+          }
+          const p = d.options.find((o) => !o.done);
+          last = p ? { owner: d.owner, key: p.key, when } : null;
+        }
+        applyAnswer(g, { d: d.id, k: (d.options.find((o) => !o.done) ?? d.options[0]).key });
+      }
+      expect(menus, sid).toBeGreaterThan(0);
+      expect(targets + menus, sid).toBeGreaterThan(1);
+    }
+  }, 60_000);
+
+  it('no phase can go on forever: random play never needs more than 250 answers in one phase', async () => {
+    const { playRandomly, sampleSetups } = await import('./play');
+    let worst = 0;
+    for (const setup of sampleSetups()) {
+      for (const seed of [1, 2, 3]) {
+        const g = newGame({ ...setup, seed: setup.seed + seed }, { quiet: true });
+        let mark = '';
+        let since = 0;
+        playRandomly(g, seed, (game) => {
+          const m = `${game.gs.turn}:${game.gs.phase}`;
+          since = m === mark ? since + 1 : 0;
+          mark = m;
+          worst = Math.max(worst, since);
+        }, 20000);
+        expect(g.gs.result.kind).not.toBe('IN_PROGRESS');
+      }
+    }
+    expect(worst).toBeLessThan(250);
+  }, 120_000);
+
+  it('Reclaim One from the card-play menu is used once it is chosen: no None to come back from', () => {
+    const g = newGame(solo({ spirits: ['river'], seed: 11 }), { quiet: true });
+    const s = g.gs.spirits[0];
+    let ready = false;
+    for (let steps = 0; steps < 200; steps++) {
+      const d = g.gs.pending[0];
+      if (!ready && d.menu === 'growth') {
+        // River's card track: 1, 2, 2, 3, Reclaim One, … — reveal it, put a card in the discard,
+        // and grow without Reclaim All (River's first option), which would empty the discard again
+        s.cardRevealed = 4;
+        s.discard.push(s.hand.pop()!);
+        ready = true;
+        applyAnswer(g, { d: d.id, k: '1' });
+        continue;
+      }
+      if (d.menu === 'play' && d.options.some((o) => o.key === 'reclaim')) {
+        applyAnswer(g, { d: d.id, k: 'reclaim' });
+        const q = g.gs.pending[0];
+        // the prompt has only cards (with one card in the discard it resolves by itself)
+        if (q.kind === 'cardReclaim') {
+          expect(q.options.every((o) => !o.done)).toBe(true);
+          applyAnswer(g, { d: q.id, k: q.options[0].key });
+        }
+        const back = g.gs.pending.find((x) => x.menu === 'play');
+        expect(back).toBeTruthy();
+        expect(back!.options.some((o) => o.key === 'reclaim')).toBe(false);
+        expect(s.discard).toHaveLength(0);
+        return;
+      }
+      applyAnswer(g, { d: d.id, k: (d.options.find((o) => !o.done) ?? d.options[0]).key });
+    }
+    throw new Error('River was never offered Reclaim One');
   });
 });

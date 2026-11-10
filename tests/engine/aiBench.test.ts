@@ -23,7 +23,7 @@ describe.skipIf(!process.env.AI_BENCH)('AI benchmark (solo, no adversary)', () =
     for (const sid of process.env.AI_SPIRITS ? (process.env.AI_SPIRITS.split(',') as SpiritId[]) : all) {
       for (let seed = 1; seed <= Number(process.env.AI_SEEDS ?? 5); seed++) {
         const adv = (process.env.AI_ADV ?? 'none') as AdversaryId;
-        const g = newGame({ v: 1, seed: seed * 101, spirits: [sid], boards: [(['A', 'B', 'C', 'D'] as const)[seed % 4]], adversary: adv, adversaryLevel: adv === 'none' ? 0 : Number(process.env.AI_LVL ?? 1) });
+        const g = newGame({ v: 2, seed: seed * 101, spirits: [sid], boards: [(['A', 'B', 'C', 'D'] as const)[seed % 4]], adversary: adv, adversaryLevel: adv === 'none' ? 0 : Number(process.env.AI_LVL ?? 1) });
         let steps = 0;
         while (g.gs.result.kind === 'IN_PROGRESS' && steps < 6000) {
           const d = g.gs.pending[0];

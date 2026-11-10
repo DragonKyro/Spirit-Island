@@ -270,7 +270,7 @@ const KILL: Record<string, number> = { city: 5, town: 3, explorer: 1 };
 /** A fast, reasonable default for any decision. */
 export function quickPick(gs: GameState, dec: Decision): string {
   const opts = dec.options;
-  const live = opts.filter((o) => !o.done && o.key !== 'cancel');
+  const live = opts.filter((o) => !o.done);
   if (!live.length) return opts[0].key;
   if (live.length === 1) return live[0].key;
   const s = dec.owner >= 0 ? gs.spirits[dec.owner] : gs.spirits[0];
@@ -382,7 +382,7 @@ function lookahead(game: Game, dec: Decision): { key: string; scores: Record<str
   let cands = dec.options;
   if (cands.length > MAX_BRANCH) {
     const quick = quickPick(game.gs, dec);
-    const keep = new Set([quick, ...cands.filter((o) => o.done || o.key === 'cancel').map((o) => o.key)]);
+    const keep = new Set([quick, ...cands.filter((o) => o.done).map((o) => o.key)]);
     cands = [...cands.filter((o) => keep.has(o.key)), ...cands.filter((o) => !keep.has(o.key)).slice(0, MAX_BRANCH - keep.size)];
   }
   const scores: Record<string, number> = {};
@@ -393,7 +393,7 @@ function lookahead(game: Game, dec: Decision): { key: string; scores: Record<str
     if (!applyAnswer(sim, { d: dec.id, k: o.key })) continue;
     complete(sim);
     // tie-breaks: act rather than pass; aim at lands that actually hold Invaders
-    const v = evaluate(sim.gs) - (o.done || o.key === 'cancel' ? 0.05 : 0);
+    const v = evaluate(sim.gs) - (o.done ? 0.05 : 0);
     scores[o.key] = v;
     if (v > bestV) {
       bestV = v;
@@ -498,18 +498,12 @@ function rolloutChoose(game: Game, dec: Decision, keys: string[], turns = 1): st
 /** Search options (the benchmark can flip these). */
 export const DEEP = { targets: true, all: true, horizon: 1, samples: 1 };
 
-/** Per-game memory: Powers the AI decided not to use this phase (so it stops re-opening them). */
-const declined = new Map<string, Set<string>>();
-const lastMenuPick = new Map<string, string>();
-
-const memKey = (game: Game, owner: number) => `${game.setup.seed}|${game.gs.turn}|${game.gs.phase}|${owner}`;
-
-/** Choose an option for `dec` (a pending decision of `game`). */
 /** A cheap choice (no rollouts): for when a full think takes too long. */
 export function aiQuickChoose(game: Game, dec: Decision): string {
   return fastPolicy(game.gs, dec);
 }
 
+/** Choose an option for `dec` (a pending decision of `game`). */
 export function aiChoose(game: Game, dec: Decision): string {
   const gs = game.gs;
   const opts = dec.options;
@@ -527,12 +521,15 @@ export function aiChoose(game: Game, dec: Decision): string {
     return rolloutChoose(game, dec, keys, DEEP.horizon);
   }
   if (dec.menu === 'power' && s) {
-    const k = memKey(game, dec.owner);
-    const no = declined.get(k) ?? new Set();
-    const pick = opts.find((o) => !o.done && !no.has(o.key));
-    const key = pick?.key ?? opts.find((o) => o.done)!.key;
-    lastMenuPick.set(k, key);
-    return key;
+    // Passing here forfeits every Power left this phase, and a chosen Power must be used (its target is
+    // chosen by rollouts). So: the most useful Power first, by its simulated effect; pass only when every
+    // Power left would hurt. Innate Powers count as neutral (0), so they are used unless nothing else is.
+    const live = opts.filter((o) => !o.done);
+    if (!live.length) return opts[0].key;
+    const gain = (o: Option) => (o.card ? effectGain(gs, s, o.card, true) : 0);
+    const ranked = live.map((o) => [o, gain(o)] as const).sort((x, y) => y[1] - x[1]);
+    if (ranked[0][1] < -1) return (opts.find((o) => o.done) ?? ranked[0][0]).key;
+    return ranked[0][0].key;
   }
   if (s && opts.some((o) => o.element)) return pickElement(s, opts);
   if (s && isPresenceSource(dec)) return pickPresenceSource(s, opts);
@@ -544,30 +541,10 @@ export function aiChoose(game: Game, dec: Decision): string {
     if (c) return c;
   }
 
-  // Power targets: play the turn out for each candidate land (AI_DEEP_TARGETS)
-  if (DEEP.targets && dec.owner >= 0 && /choose a target land/.test(dec.prompt)) {
-    const keys = opts.map((o) => o.key).slice(0, 10);
-    const k2 = rolloutChoose(game, dec, keys);
-    if (k2 === 'cancel') {
-      const k = memKey(game, dec.owner);
-      const last = lastMenuPick.get(k);
-      if (last) declined.set(k, new Set([...(declined.get(k) ?? []), last]));
-    }
-    return k2;
-  }
+  // Power targets: play the turn out for each candidate land
+  if ((DEEP.targets || DEEP.all) && dec.kind === 'targetLand') return rolloutChoose(game, dec, opts.map((o) => o.key).slice(0, 10));
   if (DEEP.all) return rolloutChoose(game, dec, opts.map((o) => o.key).slice(0, 10));
-  const { key } = lookahead(game, dec);
-  if ((key === 'cancel' || opts.find((o) => o.key === key)?.done) && dec.owner >= 0 && gs.activity) {
-    // declining a Power at target selection: don't offer it to ourselves again this phase
-    const k = memKey(game, dec.owner);
-    const last = lastMenuPick.get(k);
-    if (last && key === 'cancel') {
-      const set = declined.get(k) ?? new Set<string>();
-      set.add(last);
-      declined.set(k, set);
-    }
-  }
-  return key;
+  return lookahead(game, dec).key;
 }
 
 /** Card plays: Reclaim One if available, then the best-valued affordable card while it is worth it. */
@@ -615,16 +592,35 @@ function asNextTurn(g: GameState): GameState {
  */
 export function playValue(gs: GameState, s: SpiritState, id: string): number {
   const c = CARDS[id];
+  const best = effectGain(gs, s, id, false);
+  if (best === NO_TARGET) return -5;
+  const after = { ...elementsOf(s) };
+  for (const e of c.elements) after[e] = (after[e] ?? 0) + 1;
+  // Elements: newly met Innate tiers are worth having
+  let unlock = 0;
+  for (const inn of SPIRITS[s.id].innates) unlock += tiersMet(inn.id, after).length - tiersMet(inn.id, elementsOf(s)).length;
+  return (c.speed === 'SLOW' ? 0.85 : 1) * best - 0.5 * c.cost + 2.5 * Math.max(0, unlock);
+}
+
+const NO_TARGET = -1e9;
+
+/**
+ * The best improvement card `id`'s effect makes to the position over its legal targets (simulated on
+ * private copies; Slow cards against the next Ravage). `inPlay`: the card is already played (resolving
+ * it from the Powers menu), so its Elements are already counted. NO_TARGET if it has no legal target.
+ */
+function effectGain(gs: GameState, s: SpiritState, id: string, inPlay: boolean): number {
+  const c = CARDS[id];
   const slow = c.speed === 'SLOW';
   const base0 = slow ? asNextTurn(gs) : gs;
   const before = evaluate(base0);
   const after = { ...elementsOf(s) };
-  for (const e of c.elements) after[e] = (after[e] ?? 0) + 1;
+  if (!inPlay) for (const e of c.elements) after[e] = (after[e] ?? 0) + 1;
   let best = -Infinity;
   const tryOne = (setup: (g2: GameState, ctx: Ctx2) => void) => {
     const g2 = base0 === gs ? privateCopy(base0) : structuredClone(base0);
     const s2 = g2.spirits[s.index];
-    s2.played = [...s2.played, id];
+    if (!inPlay) s2.played = [...s2.played, id];
     const ctx: Ctx2 = { gs: g2, self: s2, source: c.name, power: { id, kind: 'card' }, dreamed: new Set(), dreamDmg: new Map() };
     setup(g2, ctx);
     let v: number;
@@ -639,7 +635,7 @@ export function playValue(gs: GameState, s: SpiritState, id: string): number {
   };
   if (c.target.kind === 'land') {
     const tg = landTargets(gs, s, c.target.range, c.target.filter);
-    if (!tg.length) return -5;
+    if (!tg.length) return NO_TARGET;
     for (const { sp, paid } of tg.slice(0, 14)) {
       tryOne((g2, ctx) => {
         ctx.target = space(g2, sp.id);
@@ -654,10 +650,7 @@ export function playValue(gs: GameState, s: SpiritState, id: string): number {
       });
     }
   }
-  // Elements: newly met Innate tiers are worth having
-  let unlock = 0;
-  for (const inn of SPIRITS[s.id].innates) unlock += tiersMet(inn.id, after).length - tiersMet(inn.id, elementsOf(s)).length;
-  return (slow ? 0.85 : 1) * best - 0.5 * c.cost + 2.5 * Math.max(0, unlock);
+  return best;
 }
 
 type Ctx2 = Parameters<(typeof CARD_EFFECTS)[string]>[0];
