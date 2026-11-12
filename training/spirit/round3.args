@@ -1,0 +1,12 @@
+--updates
+10000
+--workers
+8
+--envs-per-worker
+56
+--start-rungs
+lightning=L2,river=L2,earth=L3,shadows=L1,thunderspeaker=L1,green=L3,ocean=L1,bringer=L4
+--anneal-from
+8500
+--grid-reference
+training/runs/spirit/main/grid-u4900.json

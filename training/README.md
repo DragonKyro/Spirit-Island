@@ -79,23 +79,43 @@ the heuristic's position evaluation, `--shaping` (0.1) × tanh(evaluate / 60·pl
 the change at each decision and paid back at the end: it sums to a constant per game, so it
 steers without rewarding stalling. Constant (no fade) unless `--shaping-fade-to` > `--shaping-fade-from`.
 
-**Curriculum** (`Ladder`), by adversary level: `--ladder` none,1,2,3,4,5,6. Every Spirit
-starts on games without an adversary; one rung up is level 1 of all three adversaries in
-equal shares, then level 2, and so on (level 0 is left out: level 1 includes its rules). A
-Spirit plays only its own rung and the rungs below: 75% on its rung, `--below-share` (25%)
-spread over the rungs below as rehearsal (all on its rung while it is at the bottom), and
-never a harder rung until it is promoted. Promotion uses **probe games**: `--probe-share`
-(15%) of games are played greedily on each Spirit's current rung, equally per Spirit, and are
-not trained on. After `--window` (100) probe games on its rung and at least `--min-dwell` (100)
-updates there (counted from the start of the run), a Spirit moves up at `--promote` (40%) wins,
-down below `--demote` (10%). The fastest climb from no adversary to level 6 is 600 updates.
+**Curriculum** (`Ladder`), by adversary level: `--ladder` none,1,2,3,4,5,6, with **a level per
+Spirit and adversary**. Every Spirit starts on games without an adversary; once it passes there it
+plays level 1 of Prussia, England and Sweden (level 0 is left out: level 1 includes its rules), and
+from then on each adversary moves on its own, so a Spirit can be at Prussia 5, England 2 and
+Sweden 4. It plays only its current levels and the ones below: 75% at its levels, `--below-share`
+(25%) as rehearsal, split equally between no adversary and each adversary's lower levels; never a
+harder level until it is promoted there. Promotion uses **probe games**: `--probe-share` (15%) of
+games are played greedily at each Spirit's levels, in equal thirds of the adversaries, and are not
+trained on. Against an adversary, a Spirit **passes** once it has `--window` (50) probe games at its
+level there at `--promote` (60%) or better, after at least `--min-dwell` (100) updates at that
+level. It moves up a level there only when it passes again (`--confirm` 1) on 50 **fresh** probe
+games, played after the first pass; if those fall short it starts over. (The 50-game window slides
+and is checked after every game, so a Spirit that really wins 30% eventually reads 40% on a lucky
+streak: in round 3 seven of nine promotions cleared England at exactly 40% and then won 0-20% of
+their England games on the next rung.) **Look-ahead** (`--landing` 0.2): from its first pass, a
+track also plays probe games one level up (probes only: it never trains there), and it moves up
+only if it wins at least 20% of 50 of them. Otherwise it stays where it is and keeps training, and
+its next pass checks again on fresh games; those 50 games start its window when it does move up.
+(In round 4 Thunderspeaker passed England 1 at 60%+, lost about 90% at England 2 and was sent
+back, ten times.) It moves down a level against an adversary when it wins
+less than `--demote` (10%) there: nothing is learned where every game is lost. Its games at its
+levels split over the three adversaries by its probe loss rate against each, `--adversary-balance`
+(0.5: up to 3× against the one it loses to most). `--start-rungs` (`bringer=L4`, `earth=P5/E3`,
+`river=none`) applies when a run starts or a new round does (`--round-from N`), not on a resume.
+Saves from round 3 (one rung per Spirit) load as that level against every adversary.
 
 **Spirits that lose more play more** (one network for all Spirits): each Spirit's share of the
-training games is proportional to 1 − b + 2b × its probe loss rate on its rung, with
-b = `--spirit-balance` (0.5): a Spirit that loses every probe game plays 3× as many games as one
-that wins every one (0 = equal shares). Until a Spirit has `--balance-min` (30) probe games on its
-rung (at the start, and after each promotion) it counts as 50%. The mix is refreshed every
-`--mix-every` (10) updates; `progress.md` shows each Spirit's rung, probe win rate and share.
+training games is proportional to 1 − b + 2b × its loss rate, with b = `--spirit-balance` (0.5): a
+Spirit that loses everything plays 3× as many games as one that wins everything (0 = equal
+shares). With `--spirit-balance-from grid` (the default) the loss rate is its overall one in the
+latest full grid eval (every 500 updates); until there is one, and with `probes`, it is its probe
+loss rate at its own levels. (Per-adversary levels put every Spirit where it wins 30-50%, so in
+round 4 the probe rates gave all eight 12-14% of the games: Thunderspeaker, 39% on the grid, the
+same as Bringer, 77%. By the grid, Thunderspeaker gets about 1.5× Bringer's games.) Until a Spirit
+has `--balance-min` (30) probe games against an adversary it counts as 50% there. The mix is
+refreshed every `--mix-every` (10) updates; `progress.md` shows each Spirit's levels, probe win
+rates and share.
 At update 1000 (`main/per-spirit-u1000.md`) the spread was wide: with no adversary Bringer, Earth
 and Green won 83-86%, Lightning 58%, River 42%, Ocean 39%, Shadows 36%, Thunderspeaker 25%.
 
@@ -109,7 +129,7 @@ u  1240 | ppo       |  17.65M dec | 3.1k/s | pi -0.0041 kl 0.0062 clip 0.07 ep 2
 ```
 
 - `win`: the last 400 training games; `probe`: the last 400 probe games (greedy, on each Spirit's rung).
-  Trust the evals. `rung`: mean rung of the Spirits (0 = none); `curriculum: …` lines when one moves.
+  Trust the evals. `rung`: mean level over the Spirits and adversaries (0 = none); `curriculum: …` lines when one moves, passes or fails a check.
 - `cut (stuck)`: games cut off this update, and how many by the per-phase cap.
 - PPO health: `kl` (≲ 0.02 by construction), `ep` (epochs run before the KL stop; 4 = none),
   `clip` (≲ 0.2), `ent` (falls slowly), `ev` (value explained variance → 1), `kla` (KL to the anchor);
@@ -124,6 +144,7 @@ log, tensorboard `eval/*`, `evals.jsonl`, `progress.md`.
 | Path | What |
 |---|---|
 | `progress.md` | rewritten every save (100 updates) and when an eval lands: where the run is (update, phase, ETA, training and probe wins, each Spirit's rung and its probe win rate, the best checkpoint), the eval table (heuristic baseline, then every checkpoint, overall and per tier, with the rules version), and a row of training stats per save |
+| `by-spirit.md` | rewritten every 10 updates: each Spirit's level and probe win rate against Prussia / England / Sweden, how far a check on fresh games has got, how its games split, the levels every 100 updates, every move this round, and every pass and failed check |
 | `train.log` | the log, when started from `train.cmd` |
 | `metrics.jsonl`, `tb/` | per-update losses, entropy, KL, explained variance, throughput, curriculum |
 | `evals.jsonl` | every eval result (per tier and per Spirit) |
@@ -164,7 +185,7 @@ whenever the observation layout or a vocabulary changes.
 ## Shipping a policy
 
 ```sh
-python training/spirit/ship.py training/runs/spirit/main@1000 --out src/engine/nn/spirit-policy.bin
+python training/spirit/ship.py training/runs/spirit/main@15000 --out src/engine/nn/spirit-policy.bin
 python training/spirit/evaluate.py suite ship:src/engine/nn/spirit-policy.bin --seeds 18   # the app's player itself
 python training/spirit/evaluate.py suite heuristic --seeds 18                              # ... against the search AI
 npx vitest run tests/engine/nn.test.ts tests/net/aiDecide.test.ts                           # (the .bin's meta names its source update)
@@ -177,12 +198,91 @@ TypeScript port of the policy half of `model.py` (~14 ms per decision); `test_tr
 gives PyTorch's logits (worst difference 3e-6). Tokens beyond the trained sizes are dropped by
 `src/engine/nn/fit.ts`, which training uses too, so both see the same inputs.
 
+**Shipped: update 15000** (end of round 4, the best on the evals and the full grid). The int8 file
+picks the float network's option 99.24% of the time (20,032 decisions of its own play). As the
+app plays it (`ship:` agent, stall guard included) it wins 50.9% of 576 games (`--seeds 18`, 95% CI
+47-55%; no adversary 98%, Sweden 2 72%, England 3 26%, Prussia 6 8%), never handing over to the
+search AI; on the 192-game suite the float network scores 51.6% and the search AI 12.5%. It
+replaced update 1000 (18.8% on the 192-game suite under today's rules).
+
 `ship:FILE.bin` plays the app's neural player in node: the shipped weights, the TypeScript
 network, and its stall guard (`src/engine/nn/neural.ts`: after 150 answers in one phase the search
 AI answers for the rest of it). That is the number to compare with the heuristic.
 
 The network was trained on solo games, so the app uses it for solo games only (`neuralSupports`);
 tables with more Spirits use the search AI. Retrain with `--players N` to change that.
+
+## Round 3 (`main`, updates 5000 → 10000)
+
+Round 2 (updates 1000-5000, the pooled ladder) took the standard suite from 18.8% to 36.5% (last
+five evals; best 39.1% at update 4900), against the heuristic's 12.5%. The full grid of update 4900
+(`main/grid-u4900.md`, 4,224 games) showed England far harder than Prussia or Sweden at the same
+level (level 3: 10% against 51% and 31%): Spirits were promoted on the three adversaries' average
+while losing almost every England game. Round 3 resumes from the update-5000 checkpoint with the
+per-adversary ladder and practice split above, starting each Spirit on the first rung where it did
+not clear 40% against all three adversaries in that grid (Bringer L4; Earth, Green L3; Lightning,
+River L2; Shadows, Ocean, Thunderspeaker L1), and the learning rate decaying to 0 over the last
+1,500 updates. Every 500 updates a full grid eval (`--grid-every`, 12 deals per setting, 2,112 games)
+is compared with update 4900's in `progress.md`, flagging any Spirit × adversary that falls (or
+rises) by more than two standard errors: the check that practising England doesn't cost the strong cases.
+
+```sh
+training\spirit\train.cmd main @training/spirit/round3.args       # resumes from the update-5000 checkpoint
+powershell -NoProfile -File training\spirit\queue.ps1 -Run main -TrainArgs "@training/spirit/round3.args"
+```
+
+`train.py` reads `@FILE` as arguments, one per line (cmd would split `--start-rungs` at its `=` and `,`).
+
+## Round 5 (`main`, updates 15000 → 20000): stopped, removed
+
+Ran 1,511 updates (2026-11-12, 8:47-10:36) and was stopped as flat: full grid 53.1% / 53.4% /
+54.1% at updates 15500 / 16000 / 16500 against update 15000's 53.7% (±2), the standard evals around
+49% (update 15000: 51.6%), Thunderspeaker and Lightning flat despite the most games. Its
+checkpoints, policies, metrics, evals and log were deleted; update 15000 is shipped. Its code
+changes (look-ahead, grid-based shares, evals on the CPU) stay. Pruning during round 5 removed
+the resumable update-15000 checkpoint (now the round's starting checkpoint is always kept), so a
+new round starts from the policy and the levels it had:
+
+```sh
+python training/spirit/train.py --run main --init training/runs/spirit/main/policies/update_015000.json --start-rungs lightning=P4/E2/S3,river=P4/E2/S4,earth=P5/E4/S4,shadows=P4/E2/S4,thunderspeaker=P4/E2/S2,green=P5/E3/S4,ocean=P5/E2/S3,bringer=P6/E4/S5 ...
+```
+
+What round 5 was set up to do:
+
+Round 4 took the standard suite to 51.6% (update 15000) and the full grid from 48.1% to 53.7%:
+England 33% → 42%, Prussia 58% → 63%, Sweden 47% → 50%, no Spirit × adversary clearly worse; the
+gains came late (the grid dipped to ~46% for 2,000 updates), with the biggest jump in the last
+1,500 updates as the learning rate decayed, as in round 3. Thunderspeaker and Lightning gained
+least (+3), and every Spirit got 12-14% of the games. Round 5 changes three things: the learning
+rate is halved (`--lr 5e-5`, decaying to 0 over the last 1,500 updates), Spirit shares follow the
+full grid (`--spirit-balance-from grid`), and a pass moves up only if the next level is winnable
+(`--landing 0.2`, the look-ahead above). Its `--start-rungs` applies the look-ahead to where round 4
+left off: Earth goes back to Prussia 4 (it won 19% at Prussia 5, probes and grid together) and
+Thunderspeaker to England 1 (16% at England 2). The full grid is compared with update 15000's.
+
+```sh
+training\spirit\train.cmd main @training/spirit/round5.args       # needed the update-15000 checkpoint (since pruned)
+```
+
+## Round 4 (`main`, updates 10000 → 15000)
+
+Round 3 (per-adversary promotion, one rung per Spirit) took the standard suite to 47.4% (best,
+update 10000) and the full grid from 37.5% (update 4900) to 48.1%, every Spirit up: Prussia 44% →
+58%, Sweden 36% → 47%, England only 25% → 33% (flat from update 6500). Spirits were promoted on
+lucky England windows and then won 4-20% of their England games on the new rung, while their
+Prussia and Sweden games were held to the same level. Round 4 resumes from the update-10000
+checkpoint with a level per adversary (above): promotion at 60%, passed twice (the second time on
+fresh games), down below 10%. Its `--start-rungs` keeps every Spirit's round-3 level except where it
+was losing nearly every England game: England steps down while the Spirit won under 20% there (its
+last 50 probe games, then the grid of update 10000 below that), so Lightning starts at England 1,
+Thunderspeaker England 1, River and Ocean England 2 and Bringer England 4, keeping their Prussia
+and Sweden levels. `--round-from 10000` starts a new round in the progress files; the full grid is
+compared with round 3's at update 10000 (`--grid-reference RUN/grid_evals.jsonl@10000`); the learning
+rate is back to 1e-4, decaying to 0 over the last 1,500 updates.
+
+```sh
+training\spirit\train.cmd main @training/spirit/round4.args       # resumes from the update-10000 checkpoint
+```
 
 ## First run (`main`): what happened
 

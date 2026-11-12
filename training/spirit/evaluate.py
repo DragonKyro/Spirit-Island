@@ -14,7 +14,8 @@ deals, boards rotating; the same setups every time, never trained on (training s
 come from each env's RNG).
 
 Tiers (rulebook difficulty): none (0), Sweden 2 (3), England 3 (6), Brandenburg-Prussia 6 (10).
-Other suites: `easy` (none), `hard` (every adversary at 6), `ladder` (none, then level 1 and 2 of every adversary).
+Other suites: `easy` (none), `hard` (every adversary at 6), `ladder` (none, then level 1 and 2 of every adversary),
+`grid` (none, and every adversary at every level 0-6).
 """
 
 from __future__ import annotations
@@ -44,6 +45,8 @@ TIERS = {
     "hard": [("prussia", 6), ("england", 6), ("sweden", 6)],
     # the curriculum's first rungs: no adversary, then level 1 and level 2 of every adversary
     "ladder": [("none", 0), ("prussia", 1), ("england", 1), ("sweden", 1), ("prussia", 2), ("england", 2), ("sweden", 2)],
+    # every adversary at every level, plus none: the full Spirit x adversary x level table
+    "grid": [("none", 0)] + [(adv, lvl) for lvl in range(7) for adv in ("prussia", "england", "sweden")],
 }
 BOARDS = ["A", "B", "C", "D"]
 

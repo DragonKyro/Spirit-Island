@@ -35,20 +35,33 @@ position evaluation (`--shaping`, constant unless `--shaping-fade-to` > `--shapi
 Shaping adds up to a constant per game, so it steers without paying for stalling. A game
 that spends `--max-phase-steps` answers in one phase is cut off as a loss.
 
-Curriculum, by adversary level (`--ladder`, default none,1,2,3,4,5,6): every Spirit starts
-on games without an adversary; one rung up it plays level 1 of all three adversaries in equal
-shares, then level 2, and so on. A Spirit only plays its current rung and the rungs below it
-(`--below-share` of its games spread over those, as rehearsal): never harder rungs, until it
-is promoted. Promotion is measured with probe games: a `--probe-share` of games are played
-greedily on each Spirit's current rung (equally per Spirit) and not trained on. After
-`--window` probe games on a rung (and at least `--min-dwell` updates there) a Spirit moves up
-when it wins at least `--promote`, down when it wins less than `--demote`.
+Curriculum, by adversary level (`--ladder`, default none,1,2,3,4,5,6), one level per Spirit
+and adversary: every Spirit starts on games without an adversary (or on `--start-rungs`); once it
+passes there it plays level 1 of Prussia, England and Sweden, and from then on each adversary
+moves on its own: a Spirit can be at Prussia 5, England 2 and Sweden 4. It plays only its current
+levels and the ones below (`--below-share` of its games as rehearsal, split equally between no
+adversary and each adversary's lower levels): never a harder level until it is promoted there.
+Promotion is measured with probe games: a `--probe-share` of games are played greedily at each
+Spirit's levels (equal thirds of the three adversaries) and not trained on. Against an adversary,
+a Spirit passes once it has `--window` probe games at its level there at `--promote` or better
+(after `--min-dwell` updates at that level). It moves up a level there after `--confirm` more
+passes, each on `--window` fresh probe games played after the last pass: the sliding window is
+checked after every game, so a Spirit that really wins less would eventually pass on a lucky
+streak, and a fresh window makes that a single, fair test. From its first pass it also plays
+probe games one level up (look-ahead; never training games there), and it moves up only if it
+wins `--landing` or more of `--window` of them: passing a level is no use if the next one is
+nearly always lost, so it stays and keeps training, and the next pass checks again. It moves down
+a level against an adversary when its probe win rate there falls below `--demote`: a level where
+it wins next to nothing teaches nothing.
 
-Spirits that lose more play more: each Spirit's share of the training games is proportional to
-1 − b + 2b × (its probe loss rate on its rung), b = `--spirit-balance` (0.5: a Spirit losing every
-probe game gets 3× the games of one winning every one; 0: equal shares). Until a Spirit has
-`--balance-min` probe games on its rung it counts as 50%. The mix is refreshed every
-`--mix-every` updates.
+Practice goes where the losses are, within bounds: each Spirit's share of the training games is
+proportional to 1 − b + 2b × its loss rate, b = `--spirit-balance`: with `--spirit-balance-from
+grid` its overall loss rate in the latest full grid eval (every Spirit at its own levels wins about
+as often, so their probe losses there say little about which is weaker), else its probe loss rate
+at its levels. Its games at its levels split over the three adversaries the same way, by its probe
+loss rate against each, b = `--adversary-balance`. With b = 0.5 the most-practised case gets at
+most 3× the least (0 = equal). Until a Spirit has `--balance-min` probe games against an adversary
+it counts as 50% there. The mix is refreshed every `--mix-every` updates.
 
 Every `--save-every`: ckpt/update_N.pt (resumable, newest `--keep-ckpt` kept) and
 policies/update_N.json (all kept; policies/best.json is the best on the evals). Every
@@ -71,6 +84,7 @@ import math
 import os
 import queue
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -100,7 +114,8 @@ def default_workers() -> int:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    # `@FILE` reads arguments from FILE, one per line (e.g. training/spirit/round3.args)
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter, fromfile_prefix_chars="@")
     run = p.add_argument_group("run")
     run.add_argument("--run", default=None, help="run name (default: a timestamp)")
     run.add_argument("--runs-dir", default=DEFAULT_RUNS)
@@ -128,15 +143,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     cur = p.add_argument_group("curriculum")
     cur.add_argument("--ladder", default="none,1,2,3,4,5,6", help="rungs: 'none' and adversary levels (all three adversaries each)")
-    cur.add_argument("--below-share", type=float, default=0.25, help="share of a Spirit's games on the rungs below its own (rehearsal)")
+    cur.add_argument("--below-share", type=float, default=0.25, help="share of a Spirit's games below its levels (rehearsal)")
     cur.add_argument("--spirit-balance", type=float, default=0.5, help="0 = equal games per Spirit; 0.5 = up to 3x for the Spirits that lose most")
-    cur.add_argument("--balance-min", type=int, default=30, help="probe games on its rung before a Spirit's own rate sets its share")
+    cur.add_argument("--spirit-balance-from", choices=["grid", "probes"], default="grid",
+                     help="what 'lose most' means: the Spirit's overall win rate in the latest full grid eval (probes until there is one), "
+                          "or its probe losses at its own levels")
+    cur.add_argument("--balance-min", type=int, default=30, help="probe games at a level before their rate sets the Spirit's shares")
     cur.add_argument("--mix-every", type=int, default=10, help="updates between refreshes of the game mix")
     cur.add_argument("--probe-share", type=float, default=0.15, help="share of games played greedily to measure for promotion")
-    cur.add_argument("--window", type=int, default=100, help="probe games on a rung before moving")
-    cur.add_argument("--promote", type=float, default=0.4)
-    cur.add_argument("--demote", type=float, default=0.1)
-    cur.add_argument("--min-dwell", type=int, default=100, help="updates on a rung before moving again")
+    cur.add_argument("--window", type=int, default=50, help="probe games at a level (per adversary) before moving")
+    cur.add_argument("--adversary-balance", type=float, default=0.5, help="0 = equal thirds; 0.5 = up to 3x against the adversary it loses to most")
+    cur.add_argument("--start-rungs", default="",
+                     help="levels to put Spirits on: e.g. bringer=L4 (every adversary),earth=P5/E3 (others keep theirs),river=none; "
+                          "applied when a run starts, or a new round does (--round-from), not on a resume")
+    cur.add_argument("--promote", type=float, default=0.6, help="probe win rate against an adversary needed to move up against it")
+    cur.add_argument("--confirm", type=int, default=1, help="passes needed on fresh probe games after the first (0 = the first pass promotes)")
+    cur.add_argument("--landing", type=float, default=0.2,
+                     help="after passing, probe games one level up (not trained on) must win this much before it moves up (0 = no look-ahead)")
+    cur.add_argument("--demote", type=float, default=0.1, help="down a level against an adversary when its probe win rate there is below this")
+    cur.add_argument("--round-from", type=int, default=0,
+                     help="a new round of the curriculum starts at this update: --start-rungs applies, and the progress files list moves and history from here")
+    cur.add_argument("--min-dwell", type=int, default=100, help="updates at a level before moving again (per adversary)")
 
     learn = p.add_argument_group("learning")
     learn.add_argument("--width", type=int, default=96)
@@ -144,6 +171,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     learn.add_argument("--heads", type=int, default=4)
     learn.add_argument("--ffn", type=int, default=384)
     learn.add_argument("--lr", type=float, default=1e-4)
+    learn.add_argument("--anneal-from", type=int, default=0, help="decay the learning rate linearly from --lr at this update to 0 at --updates (0 = off)")
     learn.add_argument("--epochs", type=int, default=4)
     learn.add_argument("--minibatch", type=int, default=2048)
     learn.add_argument("--target-kl", type=float, default=0.02, help="stop an update's epochs once the policy moved this far (0 = off)")
@@ -169,14 +197,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     save.add_argument("--eval-suite", default="standard")
     save.add_argument("--eval-seeds", type=int, default=6)
     save.add_argument("--eval-workers", type=int, default=3)
+    save.add_argument("--eval-device", default="cpu",
+                      help="where the background evals run the network: cpu (as fast for this small network, ~0.6 GB less RAM, "
+                           "leaves the GPU to training) or cuda")
     save.add_argument("--rollback-after", type=int, default=3, help="evals in a row clearly below the best before restoring it (0 = never)")
+    save.add_argument("--grid-every", type=int, default=500, help="updates between full grid evals (every Spirit x adversary x level; 0 = never)")
+    save.add_argument("--grid-seeds", type=int, default=12)
+    save.add_argument("--grid-reference", default="",
+                      help="a grid eval to compare with in progress.md: an evaluate.py --suite grid --json file, "
+                           "or RUN/grid_evals.jsonl@N for a run's grid at update N")
     a = p.parse_args(argv)
     if a.eval_every and a.eval_every % a.save_every:
         p.error("--eval-every must be a multiple of --save-every")
     if not 0 <= a.below_share < 1:
         p.error("--below-share must be in [0, 1)")
-    if not 0 <= a.spirit_balance <= 1:
-        p.error("--spirit-balance must be in [0, 1]")
+    if not 0 <= a.spirit_balance <= 1 or not 0 <= a.adversary_balance <= 1:
+        p.error("--spirit-balance and --adversary-balance must be in [0, 1]")
+    if a.grid_every and a.grid_every % a.save_every:
+        p.error("--grid-every must be a multiple of --save-every")
     return a
 
 
@@ -196,121 +234,412 @@ def fmt_duration(seconds: float) -> str:
 
 # ---------------------------------------------------------------- curriculum
 
+ADV_LETTER = {"prussia": "P", "england": "E", "sweden": "S"}
+
+
 class Ladder:
-    """Each Spirit's current rung on the adversary-level ladder (see the module doc)."""
+    """Each Spirit's level against each adversary (see the module doc).
+
+    The ladder is `rungs`: 'none' (games without an adversary) first if it is there, then adversary
+    levels. A Spirit on 'none' plays only games without an adversary; once it passes there it plays
+    every adversary at the first level, and from then on each adversary is a separate *track*: it
+    moves up against Prussia when it passes against Prussia, whatever its level against England.
+    Its *settings* are what it plays now: ("none", 0), or one level of each adversary.
+
+    Probe games are kept per Spirit and setting. A setting passes when it has `window` probe games
+    at `promote` or better (after `min_dwell` updates there). With `confirm` = k it must pass k more
+    times, each on `window` probe games played after the last pass (fresh games: a lucky streak in
+    the sliding window doesn't count twice); a fresh window that falls short starts it over. With
+    `landing` > 0, from its first pass a track also plays probe games one level up (never training
+    games), and it moves up only if it wins `landing` or more of `window` of them; otherwise it stays
+    and keeps training where it is, and the next pass checks again. A track moves down a level when
+    its window falls below `demote`.
+
+    Each Spirit's share of the training games follows its losses: its probe losses at its levels, or,
+    once `set_strength` has been given its overall win rate (a full grid eval), that."""
 
     def __init__(self, spirits: list[str], rungs: list[str], below_share: float, window: int, promote: float,
-                 demote: float, min_dwell: int, balance: float = 0.0, balance_min: int = 30):
+                 demote: float, min_dwell: int, balance: float = 0.0, balance_min: int = 30, adversary_balance: float = 0.0,
+                 confirm: int = 0, landing: float = 0.0):
         self.spirits = list(spirits)
         self.rungs = [r.strip() for r in rungs]
         for r in self.rungs:
             if r != "none" and not (r.isdigit() and 0 <= int(r) <= 6):
                 raise ValueError(f"bad ladder rung {r!r}: use 'none' or an adversary level 0-6")
+        self.has_none = "none" in self.rungs
+        if self.has_none and self.rungs.index("none") != 0:
+            raise ValueError("'none' must be the ladder's first rung")
+        self.levels = [int(r) for r in self.rungs if r != "none"]
+        if not self.levels or self.levels != sorted(set(self.levels)):
+            raise ValueError(f"the ladder {self.rungs} needs adversary levels, in increasing order")
         self.below_share = below_share
-        self.promote, self.demote, self.min_dwell = promote, demote, min_dwell
-        self.balance, self.balance_min = balance, balance_min
-        self.frontier = {s: 0 for s in self.spirits}
-        self.since = {s: 0 for s in self.spirits}
-        self.probes = {s: collections.deque(maxlen=window) for s in self.spirits}
+        self.window = window
+        self.promote, self.demote, self.min_dwell, self.confirm = promote, demote, min_dwell, confirm
+        self.landing = landing
+        self.balance, self.balance_min, self.adversary_balance = balance, balance_min, adversary_balance
+        self.strength: dict[str, float] = {}  # Spirit → overall win rate (full grid), for its share of the games
+        self.started = {s: not self.has_none for s in self.spirits}         # past the 'none' rung
+        self.level = {(s, adv): 0 for s in self.spirits for adv in ADVERSARIES}  # index into self.levels
+        self.since: dict[tuple[str, str], int] = {}                         # (Spirit, setting) → update it got there
+        self.probes: dict[tuple[str, str], collections.deque] = {}
+        self.seen: dict[tuple[str, str], int] = {}     # probe games per setting since the Spirit got to that level
+        # (Spirit, setting) → {"passes": n, "at": seen at the last pass, "update": u, "confirmed": all passes done}
+        self.pending: dict[tuple[str, str], dict] = {}
+        self.checks: list[dict] = []                   # passes, checks and holds, for the progress files
+        self.events: list[str] = []                    # the same, as log lines (the trainer prints and clears them)
         self.last_move: dict | None = None
+        self.dirty = False                             # the probe mix changed (a look-ahead started or stopped)
 
-    def combos(self, i: int) -> list[tuple[str, int]]:
-        r = self.rungs[i]
-        return [("none", 0)] if r == "none" else [(adv, int(r)) for adv in ADVERSARIES]
+    # ── levels and settings ──
 
-    def rung_of(self, setup: dict) -> int | None:
-        r = "none" if setup["adversary"] == "none" else str(setup["adversaryLevel"])
-        return self.rungs.index(r) if r in self.rungs else None
+    def settings(self, spirit: str) -> list[tuple[str, int]]:
+        """What the Spirit plays now: ('none', 0), or its level against each adversary."""
+        if not self.started[spirit]:
+            return [("none", 0)]
+        return [(adv, self.levels[self.level[(spirit, adv)]]) for adv in ADVERSARIES]
+
+    def current(self, spirit: str, setting: str) -> int | None:
+        """The level the Spirit plays against `setting` now (0 for 'none'), None if it doesn't play it."""
+        return dict(self.settings(spirit)).get(setting)
+
+    def levels_of(self, spirit: str) -> dict[str, int] | None:
+        """Its level against each adversary (None while it is on the 'none' rung)."""
+        return dict(self.settings(spirit)) if self.started[spirit] else None
 
     def name(self, spirit: str) -> str:
-        r = self.rungs[self.frontier[spirit]]
-        return r if r == "none" else f"L{r}"
+        """'none', or 'P5 E3 S4'."""
+        if not self.started[spirit]:
+            return "none"
+        return " ".join(f"{ADV_LETTER[adv]}{lvl}" for adv, lvl in self.settings(spirit))
 
-    def _entries(self, spirit: str, shares: dict[int, float], scale: float) -> list[dict]:
-        out = []
-        for i, w in shares.items():
-            if w <= 0:
-                continue
-            combos = self.combos(i)
-            for adv, lvl in combos:
-                out.append({"spirit": spirit, "adversary": adv, "level": lvl, "weight": w * scale / len(combos)})
+    def _index(self, text: str) -> int:
+        r = text.strip()
+        r = r[1:] if r[:1] in ("L", "l") else r
+        if not r.isdigit() or int(r) not in self.levels:
+            raise ValueError(f"level {text!r} is not on the ladder {self.rungs}")
+        return self.levels.index(int(r))
+
+    def start_at(self, update: int) -> None:
+        """The minimum dwell everywhere counts from `update` (a run's first update)."""
+        for s in self.spirits:
+            for key in ["none", *ADVERSARIES]:
+                self.since[(s, key)] = update
+
+    def set_rungs(self, start: dict[str, str], update: int) -> None:
+        """Put Spirits on given levels, with fresh probe windows there: 'none', 'L3' (every adversary)
+        or 'P5/E3/S4' (adversaries left out keep their level)."""
+        letters = {v: k for k, v in ADV_LETTER.items()}
+        for sp, text in start.items():
+            if sp not in self.started:
+                raise ValueError(f"unknown Spirit {sp!r}")
+            text = text.strip()
+            if text == "none":
+                if not self.has_none:
+                    raise ValueError(f"the ladder {self.rungs} has no 'none' rung")
+                self.started[sp], keys = False, ["none", *ADVERSARIES]
+            elif text[:1] in ("L", "l") or text.isdigit():
+                i = self._index(text)
+                keys = list(ADVERSARIES)
+                for adv in keys:
+                    self.level[(sp, adv)] = i
+                self.started[sp] = True
+                keys.append("none")
+            else:
+                keys = []
+                for part in text.split("/"):
+                    part = part.strip()
+                    adv = letters.get(part[:1].upper())
+                    if adv is None:
+                        raise ValueError(f"bad level {part!r} for {sp}: use none, L3 or P5/E3/S4")
+                    self.level[(sp, adv)] = self._index(part[1:])
+                    keys.append(adv)
+                if not self.started[sp]:
+                    self.started[sp] = True
+                    keys = ["none", *ADVERSARIES]
+            for key in keys:
+                self._clear(sp, key)
+                self.since[(sp, key)] = update
+
+    def _dq(self, spirit: str, key: str) -> collections.deque:
+        if (spirit, key) not in self.probes:
+            self.probes[(spirit, key)] = collections.deque(maxlen=self.window)
+        return self.probes[(spirit, key)]
+
+    def _clear(self, spirit: str, key: str) -> None:
+        """Forget a setting's probe games, its pending pass and its look-ahead."""
+        for k in (key, key + "+"):
+            self.probes.pop((spirit, k), None)
+        self.seen.pop((spirit, key), None)
+        self.pending.pop((spirit, key), None)
+
+    def fresh_games(self, spirit: str, key: str) -> int | None:
+        """While a pass waits for its confirmation: probe games in that setting since the pass."""
+        p = self.pending.get((spirit, key))
+        return None if p is None else self.seen.get((spirit, key), 0) - p["at"]
+
+    def next_level(self, spirit: str, adv: str) -> int | None:
+        """The level above the Spirit's current one against `adv` (None at the top)."""
+        i = self.level[(spirit, adv)] + 1
+        return self.levels[i] if i < len(self.levels) else None
+
+    def lookahead(self, spirit: str) -> list[tuple[str, int]]:
+        """Settings one level up that the Spirit plays probe games in (from a track's first pass until it moves or stops)."""
+        if self.landing <= 0 or not self.started[spirit]:
+            return []
+        return [(adv, self.next_level(spirit, adv)) for adv in ADVERSARIES
+                if (spirit, adv) in self.pending and self.next_level(spirit, adv) is not None]
+
+    def lookahead_rate(self, spirit: str, adv: str) -> tuple[float | None, int] | None:
+        """Probe win rate and games one level up, while the look-ahead runs (else None)."""
+        if (spirit, adv) not in self.pending or self.landing <= 0:
+            return None
+        dq = self.probes.get((spirit, adv + "+"))
+        return (sum(dq) / len(dq) if dq else None, len(dq) if dq else 0)
+
+    def setting_rates(self, spirit: str) -> dict[str, tuple[float | None, int]]:
+        """Probe win rate and games in each of the Spirit's current settings."""
+        out = {}
+        for key, _ in self.settings(spirit):
+            dq = self.probes.get((spirit, key))
+            out[key] = (sum(dq) / len(dq) if dq else None, len(dq) if dq else 0)
         return out
 
+    def _loss(self, spirit: str, key: str) -> float:
+        dq = self.probes.get((spirit, key))
+        return 1 - sum(dq) / len(dq) if dq and len(dq) >= self.balance_min else 0.5
+
+    # ── game mix ──
+
+    def set_strength(self, win: dict[str, float]) -> None:
+        """Each Spirit's overall win rate (a full grid eval): from now on its share of the games follows that."""
+        self.strength = {sp: float(w) for sp, w in win.items() if sp in self.started}
+
     def spirit_shares(self) -> dict[str, float]:
-        """Each Spirit's share of the training games: more for the Spirits losing more probe games on their rung."""
+        """Each Spirit's share of the training games: more for the Spirits that lose more, by their overall win
+        rate once `set_strength` has it, else by their probe losses at their levels."""
         raw = {}
         for sp in self.spirits:
-            dq = self.probes[sp]
-            loss = 1 - sum(dq) / len(dq) if len(dq) >= self.balance_min else 0.5
+            if sp in self.strength:
+                loss = 1 - self.strength[sp]
+            else:
+                keys = [k for k, _ in self.settings(sp)]
+                loss = sum(self._loss(sp, k) for k in keys) / len(keys)
             raw[sp] = 1 - self.balance + 2 * self.balance * loss
         total = sum(raw.values())
         return {sp: w / total for sp, w in raw.items()}
 
+    def adversary_shares(self, spirit: str) -> dict[str, float]:
+        """How a Spirit's games at its levels split over the adversaries: more against the ones it loses to."""
+        keys = [k for k, _ in self.settings(spirit)]
+        raw = {k: 1 - self.adversary_balance + 2 * self.adversary_balance * self._loss(spirit, k) for k in keys}
+        total = sum(raw.values())
+        return {k: w / total for k, w in raw.items()}
+
+    def rehearsal(self, spirit: str) -> list[list[tuple[str, int]]]:
+        """Easier settings, in groups: no adversary, and each adversary's levels below the Spirit's."""
+        if not self.started[spirit]:
+            return []
+        groups = [[("none", 0)]] if self.has_none else []
+        for adv in ADVERSARIES:
+            i = self.level[(spirit, adv)]
+            if i:
+                groups.append([(adv, self.levels[j]) for j in range(i)])
+        return groups
+
     def mix(self) -> list[dict]:
-        """Training games: each Spirit's current rung, plus rehearsal on the rungs below; nothing harder."""
+        """Training games: each Spirit at its levels (split by its losses per adversary), plus `below_share`
+        rehearsal spread equally over the groups of `rehearsal()`; nothing harder."""
         out = []
         for sp, scale in self.spirit_shares().items():
-            f = self.frontier[sp]
-            shares: dict[int, float] = {f: 1.0}
-            if f > 0 and self.below_share > 0:
-                shares[f] = 1 - self.below_share
-                for i in range(f):
-                    shares[i] = self.below_share / f
-            out.extend(self._entries(sp, shares, scale))
+            groups = self.rehearsal(sp) if self.below_share > 0 else []
+            own = 1 - self.below_share if groups else 1.0
+            shares = self.adversary_shares(sp)
+            for key, lvl in self.settings(sp):
+                out.append({"spirit": sp, "adversary": key, "level": lvl, "weight": own * shares[key] * scale})
+            for g in groups:
+                for key, lvl in g:
+                    out.append({"spirit": sp, "adversary": key, "level": lvl, "weight": self.below_share / len(groups) / len(g) * scale})
         return out
 
     def probe_mix(self) -> list[dict]:
-        """Probe games: every Spirit equally, on its current rung."""
+        """Probe games: every Spirit equally, in its current settings and look-aheads, every one equally."""
         out = []
-        for s in self.spirits:
-            out.extend(self._entries(s, {self.frontier[s]: 1.0}, 1 / len(self.spirits)))
+        for sp in self.spirits:
+            st = self.settings(sp) + self.lookahead(sp)
+            for key, lvl in st:
+                out.append({"spirit": sp, "adversary": key, "level": lvl, "weight": 1 / len(self.spirits) / len(st)})
         return out
+
+    # ── promotion ──
+
+    @staticmethod
+    def _setting_name(key: str, lvl: int) -> str:
+        return "none" if key == "none" else f"L{lvl}"
 
     def record(self, ep: dict, update: int) -> str | None:
         """Count a finished probe game; returns a message when a Spirit moves."""
         if not ep.get("probe") or ep["result"] == "ABORTED":
             return None
-        s = ep["setup"]["spirits"][0]
-        f = self.frontier.get(s)
-        if f is None or self.rung_of(ep["setup"]) != f:
+        setup = ep["setup"]
+        s, key = setup["spirits"][0], setup["adversary"]
+        lvl = 0 if key == "none" else setup["adversaryLevel"]
+        if s not in self.started:
             return None
-        dq = self.probes[s]
-        dq.append(ep["result"] in WIN)
-        if len(dq) < dq.maxlen or update - self.since[s] < self.min_dwell:
+        won = ep["result"] in WIN
+        if key in ADVERSARIES and (key, lvl) in self.lookahead(s):
+            self._dq(s, key + "+").append(won)
+            return self._decide(s, key, update)
+        if self.current(s, key) != lvl:
+            return None
+        self._dq(s, key).append(won)
+        self.seen[(s, key)] = self.seen.get((s, key), 0) + 1
+        return self._decide(s, key, update)
+
+    def _decide(self, s: str, key: str, update: int) -> str | None:
+        """After a probe game in a setting or its look-ahead: pass, confirm, hold, move up or down?"""
+        if update - self.since.get((s, key), 0) < self.min_dwell:
+            return None
+        dq = self.probes.get((s, key))
+        if not dq or len(dq) < self.window:
             return None
         rate = sum(dq) / len(dq)
-        before = self.name(s)
-        if rate >= self.promote and f + 1 < len(self.rungs):
-            self.frontier[s] = f + 1
-        elif rate < self.demote and f > 0:
-            self.frontier[s] = f - 1
+        lvl = self.current(s, key)
+        before = self._setting_name(key, lvl)
+        what = f"{s} without an adversary" if key == "none" else f"{s} vs {key}"
+        can_up = key == "none" or self.next_level(s, key) is not None
+        can_down = key != "none" and self.level[(s, key)] > 0
+        looks = self.landing > 0 and key != "none"
+        p = self.pending.get((s, key))
+        if p is not None and p.get("confirmed"):
+            # passed here: waiting for the games one level up
+            la = self.probes.get((s, key + "+"))
+            if la is not None and len(la) >= self.window:
+                up, nrate = f"L{self.next_level(s, key)}", sum(la) / len(la)
+                if nrate >= self.landing:
+                    return self._move(s, key, +1, update, rate, before, what, keep=la, ahead=nrate)
+                self._stop(s, key)
+                self._check(update, s, key, before, f"held: {100 * nrate:.0f}% at {up}", rate)
+                self.events.append(f"{what} {before}: passed, but won {100 * nrate:.0f}% of {self.window} probe games at "
+                                   f"{up} (under {100 * self.landing:.0f}%): staying at {before}")
         else:
-            return None
-        dq.clear()
-        self.since[s] = update
-        self.last_move = {"update": update, "spirit": s, "from": before, "to": self.name(s), "rate": rate}
-        return f"{s}: {100 * rate:.0f}% wins in {dq.maxlen} probe games on {before} -> {self.name(s)}"
+            fresh = self.fresh_games(s, key)
+            waiting = fresh is not None and fresh < self.window
+            passed = not waiting and rate >= self.promote and can_up
+            if passed:
+                n = (p["passes"] if p else 0) + 1
+                done = n > self.confirm
+                if done and not looks:
+                    return self._move(s, key, +1, update, rate, before, what)
+                self.pending[(s, key)] = {"passes": n, "update": update, "at": self.seen[(s, key)], "confirmed": done}
+                if n == 1 and looks:
+                    self.probes.pop((s, key + "+"), None)
+                    self.dirty = True
+                total = self.confirm + 1
+                self._check(update, s, key, before, f"pass {n} of {total}", rate)
+                nxt = f" and {self.window} at L{self.next_level(s, key)}" if looks else ""
+                self.events.append(f"{what} {before}: {100 * rate:.0f}% in {self.window} probe games, pass {n} of {total}: "
+                                   + (f"checking {self.window} fresh ones{nxt}" if not done else f"checking{nxt[4:]}"))
+                return self._decide(s, key, update) if done else None
+            if p is not None and not waiting:
+                # the confirmation window is in and falls short: start over
+                self._stop(s, key)
+                self._check(update, s, key, before, "fresh games fell short", rate)
+                self.events.append(f"{what} {before}: {100 * rate:.0f}% in the fresh probe games, short of "
+                                   f"{100 * self.promote:.0f}%: starting over")
+        if rate < self.demote and can_down:
+            return self._move(s, key, -1, update, rate, before, what)
+        return None
+
+    def _stop(self, s: str, key: str) -> None:
+        """Drop a pending pass and its look-ahead (the track stays where it is)."""
+        self.pending.pop((s, key), None)
+        if self.probes.pop((s, key + "+"), None) is not None or self.landing > 0:
+            self.dirty = True
+
+    def _move(self, s: str, key: str, step: int, update: int, rate: float, before: str, what: str,
+              keep: collections.deque | None = None, ahead: float | None = None) -> str:
+        if key == "none":
+            self.started[s] = True
+            for adv in ADVERSARIES:
+                self.level[(s, adv)] = 0
+                self._clear(s, adv)
+                self.since[(s, adv)] = update
+            after = f"L{self.levels[0]}"
+        else:
+            self.level[(s, key)] += step
+            after = f"L{self.levels[self.level[(s, key)]]}"
+        self._clear(s, key)
+        if keep is not None:
+            # the look-ahead games were played at the new level: they start its window
+            self.probes[(s, key)] = keep
+            self.seen[(s, key)] = len(keep)
+        self.since[(s, key)] = update
+        self.dirty = True
+        self.last_move = {"update": update, "spirit": s, "adversary": key, "from": before, "to": after, "rate": rate}
+        if ahead is not None:
+            self.last_move["ahead"] = ahead
+        return (f"{what}: {100 * rate:.0f}% in {self.window} probe games on {before}"
+                + (f" and {100 * ahead:.0f}% at {after}" if ahead is not None else "") + f" -> {after}"
+                + (" against every adversary" if key == "none" else ""))
+
+    def _check(self, update: int, spirit: str, key: str, level: str, result: str, rate: float) -> None:
+        self.checks.append({"update": update, "spirit": spirit, "adversary": key, "level": level, "result": result, "rate": rate})
+        del self.checks[:-200]
 
     def probe_rate(self, spirit: str) -> float | None:
-        dq = self.probes[spirit]
-        return sum(dq) / len(dq) if dq else None
+        """Pooled probe win rate over the Spirit's current settings."""
+        w = n = 0
+        for key, _ in self.settings(spirit):
+            dq = self.probes.get((spirit, key))
+            if dq:
+                w += sum(dq)
+                n += len(dq)
+        return w / n if n else None
 
     def mean_rung(self) -> float:
-        return float(np.mean([self.frontier[s] for s in self.spirits]))
+        """Mean adversary level over the Spirits and adversaries (0 on the 'none' rung)."""
+        return float(np.mean([lvl if self.started[s] else 0 for s in self.spirits for _, lvl in self.settings(s)]))
 
     def state_dict(self) -> dict:
-        return {"rungs": self.rungs, "frontier": dict(self.frontier), "since": dict(self.since),
-                "probes": {s: list(d) for s, d in self.probes.items()}}
+        key = lambda k: f"{k[0]}|{k[1]}"
+        return {"format": "per-adversary-levels", "rungs": self.rungs, "started": dict(self.started),
+                "level": {key(k): i for k, i in self.level.items()}, "since": {key(k): u for k, u in self.since.items()},
+                "probes": {key(k): list(d) for k, d in self.probes.items()},
+                "seen": {key(k): n for k, n in self.seen.items()}, "pending": {key(k): p for k, p in self.pending.items()},
+                "checks": list(self.checks)}
 
-    def load_state_dict(self, st: dict) -> None:
-        if st.get("rungs") != self.rungs:
-            print(f"  curriculum: the saved ladder {st.get('rungs')} differs from --ladder {self.rungs}: starting every Spirit at the bottom")
-            return
-        self.frontier.update(st["frontier"])
-        self.since.update(st.get("since", {}))
-        for s, items in st.get("probes", {}).items():
-            self.probes[s].clear()
-            self.probes[s].extend(items)
+    def load_state_dict(self, st: dict) -> bool:
+        """False (and nothing loaded) when the saved state is from another ladder or format. A state saved
+        with one rung per Spirit (all three adversaries at the same level) is converted."""
+        fmt = st.get("format")
+        if st.get("rungs") != self.rungs or fmt not in ("per-adversary-levels", "per-adversary"):
+            print("  curriculum: the saved ladder state is from another ladder or an older format: not loaded")
+            return False
+        pair = lambda text: tuple(text.split("|", 1))
+        if fmt == "per-adversary-levels":
+            self.started.update({s: v for s, v in st["started"].items() if s in self.started})
+            self.level.update({pair(k): i for k, i in st["level"].items() if pair(k) in self.level})
+            self.since.update({pair(k): u for k, u in st.get("since", {}).items()})
+            self.pending = {pair(k): p for k, p in st.get("pending", {}).items()}
+            self.checks = list(st.get("checks", []))
+        else:
+            for s, f in st["frontier"].items():
+                if s not in self.started:
+                    continue
+                r = self.rungs[f]
+                self.started[s] = r != "none"
+                for adv in ADVERSARIES:
+                    self.level[(s, adv)] = self.levels.index(int(r)) if r != "none" else 0
+                for k in ["none", *ADVERSARIES]:
+                    self.since[(s, k)] = st.get("since", {}).get(s, 0)
+            print("  curriculum: converted the saved ladder (one rung per Spirit) to a level per adversary")
+        for k, items in st.get("probes", {}).items():
+            self._dq(*pair(k)).extend(items)
+        # saves without counts: the games in the windows are all there is
+        seen = st.get("seen") or {f"{s}|{k}": len(d) for (s, k), d in self.probes.items()}
+        for k, n in seen.items():
+            self.seen[pair(k)] = int(n)
+        return True
 
 
 # ---------------------------------------------------------------- rollout storage
@@ -352,8 +681,8 @@ class Evaluator:
             job = self.jobs.get()
             if job is None:
                 return
-            update, agent, label = job
-            cmd = [sys.executable, "-u", os.path.join(HERE, "evaluate.py"), "suite", agent, *self.args, "--json"]
+            update, agent, label, extra = job
+            cmd = [sys.executable, "-u", os.path.join(HERE, "evaluate.py"), "suite", agent, *self.args, *extra, "--json"]
             try:
                 out = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, encoding="utf-8")
                 if out.returncode != 0:
@@ -362,8 +691,10 @@ class Evaluator:
             except Exception as e:  # noqa: BLE001 -- reported, training carries on
                 self.results.put((update, agent, label, None, str(e)))
 
-    def submit(self, update: int, agent: str, label: str | None = None) -> None:
-        self.jobs.put((update, agent, label))
+    def submit(self, update: int, agent: str, label: str | None = None, suite: str | None = None, seeds: int | None = None) -> None:
+        """Queue an eval; `suite` / `seeds` override the defaults (later flags win in evaluate.py)."""
+        extra = (["--suite", suite] if suite else []) + (["--seeds", str(seeds)] if seeds else [])
+        self.jobs.put((update, agent, label, extra))
 
     def drain(self) -> list[tuple]:
         out = []
@@ -383,16 +714,32 @@ class Evaluator:
         self.thread.join()
 
 
-def prune_checkpoints(ckpt_dir: str, keep: int) -> None:
+def prune_checkpoints(ckpt_dir: str, keep: int, protect: int | None = None) -> None:
+    """Keep the newest `keep` checkpoints, and always the one at update `protect` (where the round started)."""
     files = sorted(glob.glob(os.path.join(ckpt_dir, "update_*.pt")))
+    spare = os.path.join(ckpt_dir, f"update_{protect:06d}.pt") if protect is not None else None
     for f in files[:-keep] if keep > 0 else []:
-        os.remove(f)
+        if os.path.normcase(f) != os.path.normcase(spare or ""):
+            os.remove(f)
 
 
 def clearly_worse(win: float, best: float, games: int) -> bool:
     """Below the best by more than a 95% interval on the difference of two rates over `games` games each."""
     p = max(1e-3, min(1 - 1e-3, best))
     return best - win > 1.96 * math.sqrt(2 * p * (1 - p) / max(1, games))
+
+
+def read_grid_reference(spec: str) -> dict:
+    """A grid eval: FILE (its last line) or FILE@N (the line for update N, e.g. a run's grid_evals.jsonl@10000)."""
+    path, _, at = spec.rpartition("@") if re.search(r"@\d+$", spec) else (spec, "", "")
+    with open(path, encoding="utf-8") as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    if not at:
+        return rows[-1]
+    hit = [r for r in rows if r.get("update") == int(at)]
+    if not hit:
+        raise SystemExit(f"--grid-reference {spec}: no grid for update {at} in {path} (has {[r.get('update') for r in rows]})")
+    return hit[-1]
 
 
 # ---------------------------------------------------------------- trainer
@@ -438,12 +785,16 @@ class Trainer:
         self.stuck_window: collections.deque = collections.deque(maxlen=20)
         self.early_games: list[int] = []
         self.ladder = Ladder(self.spec.raw["spirits"], args.ladder.split(","), args.below_share, args.window, args.promote,
-                             args.demote, args.min_dwell, args.spirit_balance, args.balance_min)
+                             args.demote, args.min_dwell, args.spirit_balance, args.balance_min, args.adversary_balance,
+                             confirm=args.confirm, landing=args.landing)
         self._shares_sent: dict[str, float] = {}
         self.moves: list[dict] = []
+        self.moves_before: list[dict] = []
+        self.ladder_start = 0
         self._dts: collections.deque = collections.deque(maxlen=20)
 
         ckpt = self._latest_ckpt() if args.resume else None
+        ladder_loaded = False
         if args.resume and not ckpt and not args.init:
             print(f"  --resume: no checkpoint in {self.dir}, starting fresh")
         if ckpt:
@@ -459,11 +810,13 @@ class Trainer:
             self.update, self.decisions, self.seconds = ckpt["update"], ckpt["decisions"], ckpt.get("seconds", 0.0)
             self.init_update, self.start_policy = ckpt.get("init_update"), ckpt.get("start_policy")
             if ckpt.get("ladder"):
-                self.ladder.load_state_dict(ckpt["ladder"])
+                ladder_loaded = self.ladder.load_state_dict(ckpt["ladder"])
             self.recent.extend(ckpt.get("recent", []))
             self.recent_probe.extend(ckpt.get("recent_probe", []))
             self.best, self.bad_evals, self.rollbacks = ckpt.get("best"), ckpt.get("bad_evals", 0), ckpt.get("rollbacks", 0)
             self.moves = list(ckpt.get("moves", []))
+            self.moves_before = list(ckpt.get("moves_before", []))
+            self.ladder_start = ckpt.get("ladder_start", ckpt.get("init_update") or 0)
             if ckpt.get("anchor_model") is not None:
                 self.anchor_net = copy.deepcopy(self.net).eval()
                 self.anchor_net.load_state_dict(ckpt["anchor_model"])
@@ -484,8 +837,35 @@ class Trainer:
             self.anchor_src = f"start ({os.path.basename(args.init)})"
             print(f"starting {self.dir} from {args.init} (update {self.update}, {self.decisions / 1e6:.2f}M decisions)")
         if not ckpt:
-            # the minimum dwell on the first rung counts from where this run starts
-            self.ladder.since = {sp: self.update for sp in self.ladder.spirits}
+            # the minimum dwell counts from where this run starts
+            self.ladder.start_at(self.update)
+            self.ladder_start = self.update
+        new_round = bool(args.round_from) and self.ladder_start < args.round_from <= self.update
+        if args.start_rungs and ladder_loaded and not new_round:
+            print("  curriculum: --start-rungs ignored: carrying on with the run's saved ladder")
+        elif args.start_rungs:
+            start = dict(x.split("=") for x in args.start_rungs.split(",") if x.strip())
+            self.ladder.set_rungs({k.strip(): v.strip() for k, v in start.items()}, self.update)
+            if not new_round:
+                # a new curriculum from here: earlier moves are kept, but listed apart
+                self.moves_before, self.moves, self.ladder_start = self.moves_before + self.moves, [], self.update
+            print("  curriculum: --start-rungs " + ", ".join(f"{k.strip()} {v.strip()}" for k, v in start.items()))
+        if new_round:
+            # a new round on the saved ladder: earlier moves are kept, but listed apart
+            self.moves_before, self.moves, self.ladder_start = self.moves_before + self.moves, [], args.round_from
+            print(f"  curriculum: a new round from update {args.round_from}")
+        if args.start_rungs or new_round or not ckpt:
+            print("  curriculum: levels " + ", ".join(f"{sp} {self.ladder.name(sp)}" for sp in self.ladder.spirits))
+        self.grids: list[dict] = []
+        grids_path = os.path.join(self.dir, "grid_evals.jsonl")
+        if os.path.exists(grids_path):
+            with open(grids_path, encoding="utf-8") as f:
+                self.grids = [json.loads(line) for line in f if line.strip()]
+        if args.spirit_balance_from == "grid" and self.grids:
+            self.ladder.set_strength({sp: v["win"] for sp, v in self.grids[-1]["spirits"].items()})
+        self.grid_ref: dict | None = None
+        if args.grid_reference:
+            self.grid_ref = read_grid_reference(args.grid_reference)
         if args.anchor not in ("start", "best"):
             self.anchor_net = load_policy(args.anchor, self.spec.obs_version, self.device).eval()
             self.anchor_net.amp = self.net.amp
@@ -503,15 +883,20 @@ class Trainer:
         self._last: dict | None = None
         metrics_path = os.path.join(self.dir, "metrics.jsonl")
         if (ckpt or args.init) and os.path.exists(metrics_path):
+            # keep only the save rows (reading all of a long run's metrics at once costs hundreds of MB)
             with open(metrics_path, encoding="utf-8") as f:
-                rows = [json.loads(line) for line in f if line.strip()]
-            self.history = [r for r in rows if r["update"] <= self.update and r["update"] % args.save_every == 0]
+                for line in f:
+                    head = line[:40]
+                    m = re.match(r'\{"update": (\d+),', head)
+                    if not m or int(m.group(1)) % args.save_every or int(m.group(1)) > self.update:
+                        continue
+                    self.history.append(json.loads(line))
             self._last = self.history[-1] if self.history else None
         self.writer = SummaryWriter(os.path.join(self.dir, "tb"))
         with open(os.path.join(self.dir, "config.json"), "w", encoding="utf-8") as f:
             json.dump({"args": vars(args), "obsVersion": self.spec.obs_version, "rules": RULES, "arch": self.net.arch,
                        "params": count_params(self.net), "init_update": self.init_update, "start_policy": self.start_policy}, f, indent=1)
-        self.evaluator = Evaluator(args.eval_suite, args.eval_seeds, args.eval_workers, args.device, args.players) if args.eval_every else None
+        self.evaluator = Evaluator(args.eval_suite, args.eval_seeds, args.eval_workers, args.eval_device, args.players) if args.eval_every else None
         self._baseline_path = os.path.join(args.runs_dir, f"baseline-{args.eval_suite}-s{args.eval_seeds}-p{args.players}-v{RULES}.json")
         self.baseline: dict | None = None
         if self.evaluator:
@@ -645,7 +1030,13 @@ class Trainer:
 
     # ── learning ──
 
-    def learn(self, ro: Rollout, adv: np.ndarray, ret: np.ndarray, phase: str) -> dict:
+    def lr_at(self, u: int) -> float:
+        a = self.a
+        if not a.anneal_from or u <= a.anneal_from or a.updates <= a.anneal_from:
+            return a.lr
+        return a.lr * max(0.0, (a.updates - u) / (a.updates - a.anneal_from))
+
+    def learn(self, ro: Rollout, adv: np.ndarray, ret: np.ndarray, phase: str, u: int = 0) -> dict:
         a = self.a
         valid = ro.valid.reshape(-1)
         idx_all = np.flatnonzero(valid)
@@ -658,7 +1049,7 @@ class Trainer:
         if len(idx_all) > 1:
             m, s = A[idx_all].mean(), A[idx_all].std() + 1e-8
             A = (A - m) / s
-        lr = a.bc_lr if phase == "bc" else a.lr
+        lr = a.bc_lr if phase == "bc" else self.lr_at(u)
         for gparam in self.opt.param_groups:
             gparam["lr"] = lr
         epochs = a.bc_epochs if phase == "bc" else a.epochs
@@ -745,12 +1136,13 @@ class Trainer:
             "recent": list(self.recent), "recent_probe": list(self.recent_probe),
             "anchor_model": self.anchor_net.state_dict() if self.anchor_net is not None else None, "anchor_src": self.anchor_src,
             "best": self.best, "bad_evals": self.bad_evals, "rollbacks": self.rollbacks, "moves": self.moves,
+            "moves_before": self.moves_before, "ladder_start": self.ladder_start,
             "init_update": self.init_update, "start_policy": self.start_policy,
             "rng_np": self.rng.bit_generator.state, "rng_torch": torch.get_rng_state(), "args": vars(self.a),
         })
-        prune_checkpoints(os.path.join(self.dir, "ckpt"), self.a.keep_ckpt)
+        prune_checkpoints(os.path.join(self.dir, "ckpt"), self.a.keep_ckpt, protect=self.ladder_start)
         policy = os.path.join(self.dir, "policies", f"update_{u:06d}.json")
-        export_policy(self.net, policy, {"update": u, "decisions": self.decisions, "ladder": self.ladder.state_dict()["frontier"]})
+        export_policy(self.net, policy, {"update": u, "decisions": self.decisions, "ladder": {s: self.ladder.name(s) for s in self.ladder.spirits}})
         return policy
 
     def _set_best(self, update: int, win: float, policy: str) -> None:
@@ -782,6 +1174,19 @@ class Trainer:
                     json.dump(res, f)
                 tiers = ", ".join(f"{k} {100 * v['win']:.0f}%" for k, v in res["tiers"].items())
                 print(f"  heuristic baseline on the eval suite: {100 * res['win']:.1f}% ({tiers})")
+                changed = True
+                continue
+            if label == "grid":
+                grec = {"update": update, "hours": self.seconds / 3600, "rules": RULES, **res}
+                self.grids.append(grec)
+                if self.a.spirit_balance_from == "grid":
+                    self.ladder.set_strength({sp: v["win"] for sp, v in res["spirits"].items()})  # the mix follows at the next refresh
+                with open(os.path.join(self.dir, "grid_evals.jsonl"), "a", encoding="utf-8") as f:
+                    f.write(json.dumps(grec) + "\n")
+                self.writer.add_scalar("grid/win", res["win"], update)
+                for sp, v in res["spirits"].items():
+                    self.writer.add_scalar(f"grid/{sp}", v["win"], update)
+                print(f"  grid eval @ {update}: {100 * res['win']:.1f}% over {res['games']} games (every Spirit x adversary x level)")
                 changed = True
                 continue
             rec = {"update": update, "hours": self.seconds / 3600, "decisions": self.decisions, "rules": RULES, **res}
@@ -828,19 +1233,11 @@ class Trainer:
                          f"on each Spirit's rung): {'-' if probe is None else f'{100 * probe:.0f}%'} over the last {len(self.recent_probe)}. "
                          "The evals below are the real measure.\n\n")
             if "rungs" in last:
-                lines.append("## By Spirit\n\nRungs: none (no adversary), then L1-L6 (that level of Prussia, England and Sweden). "
-                             f"A Spirit moves up after {self.a.window} probe games on its rung with at least {100 * self.a.promote:.0f}% wins "
-                             f"(and {self.a.min_dwell}+ updates there), down below {100 * self.a.demote:.0f}%. Probe games are played greedily "
-                             "and not trained on.\n\n")
-                lines.append("| Spirit | rung | probe wins there (games) | share of training games | on this rung since | moves |\n"
-                             "|:--|:--|---:|---:|---:|:--|\n")
-                for sp, r in last["rungs"].items():
-                    pr = last.get("probe_by_spirit", {}).get(sp)
-                    sh = last.get("share_by_spirit", {}).get(sp)
-                    n = len(self.ladder.probes[sp]) if sp in self.ladder.probes else 0
-                    mv = " ".join(f"{m['to']}@{m['update']}" for m in self.moves if m["spirit"] == sp) or "-"
-                    lines.append(f"| {sp} | **{r}** | {'-' if pr is None else f'{100 * pr:.0f}% ({n})'} | "
-                                 f"{'-' if sh is None else f'{100 * sh:.0f}%'} | {self.ladder.since.get(sp, '')} | {mv} |\n")
+                lines.append("## By Spirit\n\nEach Spirit has its own level (L1-L6) against each of Prussia, England and Sweden, "
+                             f"after a first rung without an adversary. {self._rule_text()} Probe games are played greedily and not "
+                             "trained on. Its games go more to the adversary it loses to (the split is shown), and Spirits that lose "
+                             "more get more games. `by-spirit.md` has the history.\n\n")
+                lines.extend(self._now_table())
                 lines.append("\n")
                 lines.extend(self._spirit_history())
         if self.best:
@@ -855,6 +1252,7 @@ class Trainer:
             lines.append("_No results yet (the heuristic baseline on the suite is computed first)._\n\n")
         lines.extend(self._eval_table())
         lines.extend(self._eval_by_spirit())
+        lines.extend(self._grid_section())
         lines.append("\n## Training\n\nOne row per save. `win`: last 400 training games; `probe`: last 400 probe games (greedy, on the "
                      "Spirits' rungs); `cut`: games cut off in the last update; `rungs`: each Spirit's rung; `ce` / `acc`: imitation "
                      "loss and agreement with the heuristic; `ent`: policy entropy; `kl`: policy change per update; `ep`: PPO epochs "
@@ -863,7 +1261,7 @@ class Trainer:
         lines.append("|---:|---:|---:|:--|---:|---:|---:|---:|:--|---:|---:|---:|---:|---:|---:|---:|\n")
         for r in self.history:
             if "rungs" in r:
-                rungs = " ".join(f"{k[:2]}:{v}" for k, v in r["rungs"].items())
+                rungs = " ".join(f"{k[:2]}:{v.replace(' ', '')}" for k, v in r["rungs"].items())
             else:
                 rungs = "d " + " ".join(f"{k[:2]}{v}" for k, v in r.get("frontier", {}).items())
             cell = lambda k, fmt, scale=1.0: format(r[k] * scale, fmt) if r.get(k) is not None else ""
@@ -876,15 +1274,16 @@ class Trainer:
         with open(tmp, "w", encoding="utf-8") as f:
             f.writelines(lines)
         os.replace(tmp, os.path.join(self.dir, "progress.md"))
+        self._write_spirit_file()
 
     def _spirit_history(self) -> list[str]:
         """Each Spirit's rung and probe win rate at every save of this run (newest last)."""
-        rows = [r for r in self.history if "rungs" in r]
+        rows = [r for r in self.history if "rungs" in r and r["update"] > self.ladder_start]
         if not rows:
             return []
         spirits = list(rows[-1]["rungs"])
-        out = ["### Spirits over time\n\nAt each save: rung, and probe win rate on it so far (blank until its first probe game "
-               "on the rung).\n\n", "| update | " + " | ".join(spirits) + " |\n", "|---:|" + ":--|" * len(spirits) + "\n"]
+        out = [f"### Spirits over time\n\nSince update {self.ladder_start}, at each save: rung, and probe win rate on it so far "
+               "(all its adversaries together; blank until its first probe game on the rung).\n\n", "| update | " + " | ".join(spirits) + " |\n", "|---:|" + ":--|" * len(spirits) + "\n"]
         for r in rows:
             cells = []
             for sp in spirits:
@@ -907,6 +1306,186 @@ class Trainer:
         for r in rows:
             lab = f"{r['update']} ({r['label']})" if r.get("label") else str(r["update"])
             out.append(f"| {lab} | " + " | ".join(f"{100 * r['spirits'][sp]['win']:.0f}%" if sp in r["spirits"] else "" for sp in spirits) + " |\n")
+        return out
+
+    def _rule_text(self) -> str:
+        """The promotion rule, in words, from this run's settings."""
+        a = self.a
+        text = (f"Against each adversary on its own, a Spirit passes once it has {a.window} probe games at its level there, "
+                f"{100 * a.promote:.0f}% or better (after {a.min_dwell}+ updates at that level)")
+        if a.confirm:
+            more = "again" if a.confirm == 1 else f"{a.confirm} more times"
+            text += (f", and moves up a level against that adversary when it passes {more}, each time on {a.window} fresh "
+                     "probe games played after the last pass (if they fall short, it starts over).")
+        else:
+            text += ", and then moves up a level against that adversary."
+        if a.landing > 0:
+            text += (f" From its first pass it also plays probe games one level up (never training games there); it moves up "
+                     f"only if it wins {100 * a.landing:.0f}% or more of {a.window} of them, otherwise it stays and keeps training "
+                     "where it is, and the next pass checks again.")
+        text += (f" It moves down a level against an adversary when it wins less than {100 * a.demote:.0f}% there. "
+                 "Without an adversary (the first rung) the same rule moves it to level 1 of all three.")
+        if a.spirit_balance_from == "grid":
+            text += (" Spirits with a lower overall win rate in the latest full grid eval get more of the training games "
+                     f"(up to {(1 + a.spirit_balance) / max(1e-9, 1 - a.spirit_balance):.0f}x).")
+        return text
+
+    @staticmethod
+    def _move_label(m: dict) -> str:
+        """'P6@10120' (Prussia to level 6 at update 10120); 'L1@4200' for leaving the no-adversary rung."""
+        to = m["to"][1:] if m.get("adversary") in ADV_LETTER else m["to"]
+        return f"{ADV_LETTER.get(m.get('adversary'), '')}{to}@{m['update']}"
+
+    def _now_table(self) -> list[str]:
+        """Each Spirit now: its level, probe win rate and progress against each adversary."""
+        a, lad = self.a, self.ladder
+        shares = lad.spirit_shares()
+        out = ["| Spirit | vs Prussia | vs England | vs Sweden | its games P / E / S | share of all games | moves this round |\n",
+               "|:--|:--|:--|:--|:--|---:|:--|\n"]
+        for sp in lad.spirits:
+            rates = lad.setting_rates(sp)
+            cells = {}
+            for key, lvl in lad.settings(sp):
+                r, n = rates[key]
+                cell = f"**{'none' if key == 'none' else f'L{lvl}'}** " + ("-" if r is None else f"{100 * r:.0f}% ({n})")
+                fresh = lad.fresh_games(sp, key)
+                at_top = key != "none" and lad.level[(sp, key)] + 1 >= len(lad.levels)
+                ahead = lad.lookahead_rate(sp, key) if key != "none" else None
+                if fresh is not None and not lad.pending[(sp, key)].get("confirmed"):
+                    cell += f", check {min(fresh, a.window)}/{a.window}"
+                if ahead is not None:
+                    ar, an = ahead
+                    cell += f", L{lad.next_level(sp, key)}: " + ("-" if ar is None else f"{100 * ar:.0f}% ({an}/{a.window})")
+                if fresh is None and ahead is None:
+                    if at_top:
+                        cell += ", top"
+                    elif r is not None and n >= a.window and r >= a.promote:
+                        cell += ", ready"
+                cells[key] = cell
+            if "none" in cells:
+                row, split = [cells["none"] + " (no adversary)", "", ""], "-"
+            else:
+                row = [cells[adv] for adv in ADVERSARIES]
+                split = " / ".join(f"{100 * v:.0f}" for v in lad.adversary_shares(sp).values()) + "%"
+            mv = " ".join(self._move_label(m) for m in self.moves if m["spirit"] == sp) or "-"
+            out.append(f"| {sp} | " + " | ".join(row) + f" | {split} | {100 * shares[sp]:.0f}% | {mv} |\n")
+        return out
+
+    @staticmethod
+    def _row_levels(row: dict, sp: str) -> dict[str, int] | None:
+        """A metrics row's levels for a Spirit (rows from before per-adversary levels have one rung, 'L3' or 'none')."""
+        if "levels" in row:
+            return row["levels"].get(sp)
+        r = row.get("rungs", {}).get(sp, "none")
+        return None if r == "none" else {adv: int(r[1:]) for adv in ADVERSARIES}
+
+    def _write_spirit_file(self) -> None:
+        """by-spirit.md: each Spirit against each adversary at its level there (rewritten every --mix-every updates)."""
+        a, lad = self.a, self.ladder
+        lines = [f"# Spirit Island training: each Spirit against each adversary (run `{os.path.basename(self.dir)}`)\n\n",
+                 f"Update {self.update:,} of {a.updates:,}, written {time.strftime('%Y-%m-%d %H:%M')}. Each Spirit has its own level "
+                 "(L1-L6) against each of Brandenburg-Prussia, England and Sweden. The numbers are probe games: played greedily at "
+                 f"the Spirit's levels, in equal thirds of the adversaries, not trained on (the last {a.window} against each). "
+                 f"{self._rule_text()} A move down clears that adversary's count; a move up starts the new level with its "
+                 f"look-ahead games. In the table: `check 31/{a.window}` = passed once, {a.window} fresh games needed to confirm; "
+                 f"`L4: 12% (31/{a.window})` = its probe games one level up so far; `ready` = at the bar, waiting for the dwell "
+                 "or the check to start. `progress.md` has the evals and the full grid.\n\n",
+                 "## Now\n\n"]
+        lines.extend(self._now_table())
+        rows = [r for r in self.history if r["update"] > self.ladder_start and "probe_by_setting" in r]
+        if rows:
+            lines.append(f"\n## Every {a.save_every} updates\n\nLevel and probe win rate against Prussia / England / Sweden at that "
+                         "point (no adversary: one number).\n\n")
+            lines.append("| update | " + " | ".join(lad.spirits) + " |\n|---:|" + ":--|" * len(lad.spirits) + "\n")
+            for r in rows:
+                cells = []
+                for sp in lad.spirits:
+                    ps = r["probe_by_setting"].get(sp, {})
+                    pct = lambda v: "-" if v is None or v[0] is None else f"{100 * v[0]:.0f}"
+                    lv = self._row_levels(r, sp)
+                    if lv is None or "none" in ps:
+                        cells.append(f"none {pct(ps.get('none'))}")
+                    else:
+                        cells.append(" / ".join(f"{ADV_LETTER[adv]}{lv[adv]} {pct(ps.get(adv))}" for adv in ADVERSARIES))
+                lines.append(f"| {r['update']} | " + " | ".join(cells) + " |\n")
+        if self.moves:
+            lines.append("\n## Moves this round\n\n| update | Spirit | against | from | to | probe win rate there | at the new level |\n"
+                         "|---:|:--|:--|:--|:--|---:|---:|\n")
+            for m in self.moves:
+                against = {"none": "(no adversary)"}.get(m.get("adversary"), m.get("adversary", "all three"))
+                rate, ahead = m.get("rate"), m.get("ahead")
+                lines.append(f"| {m['update']} | {m['spirit']} | {against} | {m['from']} | {m['to']} | "
+                             f"{'' if rate is None else f'{100 * rate:.0f}%'} | {'' if ahead is None else f'{100 * ahead:.0f}%'} |\n")
+        checks = [c for c in lad.checks if c["update"] > self.ladder_start and "adversary" in c]
+        if checks:
+            lines.append("\n## Passes and checks on fresh games\n\n| update | Spirit | against | level | result | probe win rate |\n"
+                         "|---:|:--|:--|:--|:--|---:|\n")
+            for c in checks:
+                lines.append(f"| {c['update']} | {c['spirit']} | {c['adversary']} | {c['level']} | {c['result']} | {100 * c['rate']:.0f}% |\n")
+        tmp = os.path.join(self.dir, "by-spirit.md.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        os.replace(tmp, os.path.join(self.dir, "by-spirit.md"))
+
+    def _grid_section(self) -> list[str]:
+        """The latest full grid eval next to the reference one: is any Spirit or adversary getting worse?"""
+        if not self.grids:
+            return []
+        g, ref = self.grids[-1], self.grid_ref
+        st, rst = g["spirit_tiers"], (ref or {}).get("spirit_tiers", {})
+        spirits = sorted(st, key=lambda sp: -g["spirits"][sp]["win"])
+        levels = [("none", ["none0"])] + [(f"L{k}", [f"{adv}{k}" for adv in ADVERSARIES]) for k in range(7)]
+
+        def wn(table, sp, keys):
+            return sum(table[sp][k][0] for k in keys if k in table.get(sp, {})), sum(table[sp][k][1] for k in keys if k in table.get(sp, {}))
+
+        def change(w, n, rw, rn):
+            """'now (±change)' with ▲ / ▼ when the change is beyond 2 standard errors."""
+            if not n:
+                return ""
+            now = w / n
+            if not rn:
+                return f"{100 * now:.0f}%"
+            was = rw / rn
+            pooled = (w + rw) / (n + rn)
+            se = math.sqrt(max(pooled * (1 - pooled), 1e-9) * (1 / n + 1 / rn))
+            mark = " ▲" if now - was > 2 * se else " ▼" if was - now > 2 * se else ""
+            return f"{100 * now:.0f}% ({100 * (now - was):+.0f}){mark}"
+
+        out = [f"\n## Full grid (every {self.a.grid_every} updates)\n\nUpdate {g['update']}: every Spirit against every adversary at "
+               f"every level, {g['seeds']} deals each ({g['games']} games), overall {100 * g['win']:.1f}%."]
+        if ref:
+            at = f", update {ref['update']}" if "update" in ref else ""
+            out.append(f" In brackets: the change from the reference (`{os.path.basename(self.a.grid_reference)}`{at}, overall "
+                       f"{100 * ref['win']:.1f}%); ▲ / ▼ mark changes beyond two standard errors.")
+        out.append("\n\nBy Spirit and adversary (all levels together; the place to look for a strong case getting worse):\n\n")
+        out.append("| Spirit | Prussia | England | Sweden | all |\n|:--|---:|---:|---:|---:|\n")
+        for sp in spirits:
+            cells = []
+            for adv in ADVERSARIES:
+                keys = [f"{adv}{k}" for k in range(7)]
+                cells.append(change(*wn(st, sp, keys), *wn(rst, sp, keys)) if rst else change(*wn(st, sp, keys), 0, 0))
+            allk = [k for k in st[sp]]
+            cells.append(change(*wn(st, sp, allk), *wn(rst, sp, allk)) if rst else change(*wn(st, sp, allk), 0, 0))
+            out.append(f"| {sp} | " + " | ".join(cells) + " |\n")
+        tot = []
+        for adv in ADVERSARIES + ("all",):
+            keys = [f"{adv}{k}" for k in range(7)] if adv != "all" else None
+            w = n = rw = rn = 0
+            for sp in spirits:
+                ks = keys or list(st[sp])
+                a1, b1 = wn(st, sp, ks)
+                w, n = w + a1, n + b1
+                if rst:
+                    a2, b2 = wn(rst, sp, ks)
+                    rw, rn = rw + a2, rn + b2
+            tot.append(change(w, n, rw, rn))
+        out.append("| **all Spirits** | " + " | ".join(tot) + " |\n\n")
+        out.append("By level (the three adversaries together; small samples per cell, so changes are rarely marked):\n\n")
+        out.append("| Spirit | " + " | ".join(name for name, _ in levels) + " |\n|:--|" + "---:|" * len(levels) + "\n")
+        for sp in spirits:
+            cells = [change(*wn(st, sp, keys), *(wn(rst, sp, keys) if rst else (0, 0))) for _, keys in levels]
+            out.append(f"| {sp} | " + " | ".join(cells) + " |\n")
         return out
 
     def _eval_table(self) -> list[str]:
@@ -981,7 +1560,7 @@ class Trainer:
                 episodes = self.collect(ro, cur, teacher_plays=ph == "bc" and not dagger)
                 adv, ret = self.gae(ro, self.bootstrap(cur))
                 t1 = time.perf_counter()
-                stats = self.learn(ro, adv, ret, ph)
+                stats = self.learn(ro, adv, ret, ph, u)
                 t2 = time.perf_counter()
                 # results and the curriculum (probe games only)
                 moved = []
@@ -993,9 +1572,11 @@ class Trainer:
                     if msg:
                         moved.append(msg)
                         self.moves.append(self.ladder.last_move)
-                if moved:
+                if moved or self.ladder.dirty:
+                    # a move changes the training games; a look-ahead starting or stopping changes the probe games
                     self._configure_all(mix=self.ladder.mix(), probe_mix=self.ladder.probe_mix())
                     self._shares_sent = self.ladder.spirit_shares()
+                    self.ladder.dirty = False
                 elif a.mix_every and u % a.mix_every == 0:
                     shares = self.ladder.spirit_shares()
                     if any(abs(v - self._shares_sent.get(k, 0)) > 0.005 for k, v in shares.items()):
@@ -1011,15 +1592,20 @@ class Trainer:
                 self.seconds += dt
                 self.update = u
                 self._log(u, ph, dagger, n_dec, dt, t1 - t0, t2 - t1, episodes, stats, shaping, stuck)
-                for msg in moved:
+                for msg in self.ladder.events + moved:
                     print(f"  curriculum: {msg}")
+                self.ladder.events.clear()
                 if u % a.save_every == 0 or u == a.updates:
                     policy = self.save()
                     if self.evaluator and a.eval_every and u % a.eval_every == 0:
                         self.evaluator.submit(u, policy)
+                    if self.evaluator and a.grid_every and u % a.grid_every == 0:
+                        self.evaluator.submit(u, policy, "grid", suite="grid", seeds=a.grid_seeds)
                     if self._last:
                         self.history.append(self._last)
                     self._write_progress()
+                if a.mix_every and u % a.mix_every == 0:
+                    self._write_spirit_file()
                 self._handle_evals()
                 why = self._stalled()
                 if why:
@@ -1064,8 +1650,11 @@ class Trainer:
         rec = {"update": u, "phase": ph, "dagger": dagger, "decisions": self.decisions, "seconds": self.seconds,
                "dec_per_s": n_dec / max(dt, 1e-9), "win_recent": wins, "win_probe": probe, "games": len(episodes),
                "aborted": aborted, "truncated": trunc, "stuck": stuck, "shaping": shaping, "rung": self.ladder.mean_rung(),
-               "rungs": rungs, "probe_by_spirit": {s: self.ladder.probe_rate(s) for s in self.ladder.spirits},
+               "rungs": rungs, "levels": {s: self.ladder.levels_of(s) for s in self.ladder.spirits},
+               "probe_by_spirit": {s: self.ladder.probe_rate(s) for s in self.ladder.spirits},
                "share_by_spirit": self.ladder.spirit_shares(),
+               "probe_by_setting": {sp: {adv: list(v) for adv, v in self.ladder.setting_rates(sp).items()} for sp in self.ladder.spirits},
+               "adversary_shares": {sp: self.ladder.adversary_shares(sp) for sp in self.ladder.spirits},
                "sec_per_update": float(np.mean(self._dts)), "eta_seconds": left, "rollbacks": self.rollbacks, **stats}
         self._last = rec
         with open(os.path.join(self.dir, "metrics.jsonl"), "a", encoding="utf-8") as f:
@@ -1080,7 +1669,8 @@ class Trainer:
         self.writer.add_scalar("train/rung", self.ladder.mean_rung(), u)
         self.writer.add_scalar("train/dec_per_s", rec["dec_per_s"], u)
         for s in self.ladder.spirits:
-            self.writer.add_scalar(f"curriculum/{s}", self.ladder.frontier[s], u)
+            for adv, lvl in self.ladder.settings(s):
+                self.writer.add_scalar(f"curriculum/{s}/{adv}", lvl, u)
 
 
 def main(argv: list[str] | None = None) -> str:

@@ -1,12 +1,14 @@
 // The neural player: the trained network chooses, the search AI (ai.ts) is the safety net.
 //
 // The network was trained on solo games only (one Spirit token), so it plays solo games
-// only (`neuralSupports`). The update-1000 network was trained when Powers could still be
-// cancelled at their target, and learned that stalling (choose, cancel, repeat) beats a
-// losing game. The rules no longer allow that, so a phase always ends; the guard stays as a
+// only (`neuralSupports`). The shipped one is update 15000 (training round 4): 50.9% wins on
+// 576 test games (8 Spirits x no adversary / Sweden 2 / England 3 / Prussia 6), against the
+// search AI's 12.5% on the 192-game suite. An early network (trained when Powers could still
+// be cancelled at their target) learned that stalling (choose, cancel, repeat) beats a losing
+// game. The rules no longer allow that, so a phase always ends; the guard stays as a
 // backstop: `StallTracker` counts the answers since the game last moved on to a new turn or
 // phase, and past STALL_LIMIT (a normal phase takes well under a hundred answers) the search
-// AI answers for the rest of that phase.
+// AI answers for the rest of that phase (update 15000 never needed it in those 576 games).
 
 import { aiChoose } from '../ai';
 import type { Decision } from '../decide';

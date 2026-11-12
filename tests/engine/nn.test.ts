@@ -20,7 +20,7 @@ describe('the shipped policy file', () => {
     expect(statSync(FILE).size).toBeLessThan(1_000_000);
     expect(policy.players).toBe(1);
     expect(policy.obsVersion).toBe(OBS_VERSION);
-    expect(policy.meta.source).toBe('update_001000.json');
+    expect(policy.meta.source).toBe('update_015000.json');
   });
 
   it('rejects files that are not policies, and observations from another layout', () => {
