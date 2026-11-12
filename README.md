@@ -1,50 +1,100 @@
-# Spirit Island
+# Spirit Island — Web
 
-Solo player Spirit Island - a digital adaptation of the cooperative board game where you play as a Spirit defending your island from colonizing Invaders.
+A digital table for the cooperative board game **Spirit Island** (base game): solo, hot-seat, or online with friends. Every rule is enforced and all Invader bookkeeping is automated; the game asks you whenever the rules give a choice.
 
-The app enforces turn order, automates bookkeeping (fear, blight, invader actions), and tracks game state so you can focus on strategy without forgetting steps or misreading rules.
+Play it at: **https://klui.github.io/Spirit-Island/**
 
-## Requirements
-- Python 3.11+
-- Arcade 3.3.3+
+## What's in it
 
-## Setup
+- **All 8 base-game Spirits** with their real Growth options, Presence Tracks (incl. bonus Elements, Reclaim One, "Any"), Innate Powers and Special Rules: Lightning's Swift Strike, River Surges in Sunlight, Vital Strength of the Earth, Shadows Flicker Like Flame, Thunderspeaker, A Spread of Rampant Green, Ocean's Hungry Grasp, Bringer of Dreams and Nightmares.
+- **Every base-game Power Card** — 32 Unique, 36 Minor, 22 Major — with thresholds, "-or-" choices, Repeats, Range/Target rules, Fast/Slow timing and Elements.
+- **Invaders**: Explore / Build / Ravage with Defend, Dahan counter-attacks, Blight with Cascades and Presence destruction, the Stage I/II/III deck (incl. Coastal Lands), Escalation.
+- **Fear**: the 15 base Fear Cards at all three Terror Levels, the Terror dividers, and Fear victory.
+- **Blight**: both base Blight Cards (Downward Spiral, Memory Fades to Dust), Healthy → Blighted Island.
+- **Adversaries**: Brandenburg-Prussia, England and Sweden, levels 0–6 (setup changes, deck orders, High Immigration, Heavy Mining, Mining Rush, Proud & Mighty Capital…), with the rulebook's difficulty values and scoring.
+- **Island boards A–D**, joined in the standard layouts for 1–4 players.
+- **Online play** through Firebase: create a room, share the link, each player takes a seat and a Spirit; play is simultaneous where the rules allow.
+- Solo games save automatically in the browser, with unlimited Undo; online games support undo by agreement.
+- Invader Phase playback, an illustrated rules reference with engine-rendered examples, and game history & stats.
+- **AI players**: let the AI play any Spirit as your teammate (or all of them, to watch), locally or as AI players in online rooms, and ask it for a 💡 suggestion on any decision. Solo games use a **trained neural network** by default (instant; wins about 19% of a mixed-difficulty test suite against the search AI's 12%); other tables, and the 🔍 Search AI option, use the heuristic search AI.
+- All art is original inline SVG (pieces, icons, terrain, Spirit emblems), inspired by the rulebook's iconography.
+
+## Tech stack
+
+- TypeScript 5 (strict) + React 18, Vite 5, Zustand 4, Vitest 2
+- Firebase Realtime Database + anonymous Auth (online play only; loaded lazily)
+- GitHub Actions → GitHub Pages
+
+## Development
+
 ```bash
-conda activate arcade
+npm install
+npm run dev          # http://localhost:5173/Spirit-Island/
+npm test             # engine + network tests
+npm run build        # type-check + production build → dist/
+npm run preview      # serve dist/
+npm run deploy:rules # deploy this app's Realtime Database rules (merged into the shared rules)
 ```
 
-## Run
-```bash
-python spirit_island.py
-```
+The project `.npmrc` pins the public npm registry so `package-lock.json` only references `registry.npmjs.org`.
 
-## Test
-```bash
-pytest
-```
+In dev builds, `?demo=river,shadows&steps=30&seed=7&adv=sweden&lvl=2` starts a game and auto-plays some choices (handy for screenshots).
 
-## Features
+## How it works
 
-### Home Screen
-- Play, Load Game, Rules, Stats, Options, Credits, Exit
+The engine (`src/engine/`) is pure TypeScript. Game logic is written as generators that *yield* a decision whenever a player must choose; a game is fully determined by its setup (including an RNG seed) plus the ordered list of answers. That one design gives:
 
-### Game Setup
-- Select one or more spirits (click to toggle)
-  - Lightning's Swift Strike, Vital Strength of the Earth, River Surges in Sunlight, Shadows Flicker Like Flame
-- Choose an adversary: Brandenburg-Prussia, England, Sweden (or none)
-- Set adversary difficulty level (0-6)
+- **Undo** — replay the answer log minus its last entry.
+- **Saves** — store setup + answers in `localStorage`.
+- **Online play** — the host writes the setup to the room; every move is a tiny `{decision, choice, seat}` record in a write-once, ordered action log, and every device replays the same log. Stale or out-of-turn answers are ignored identically everywhere.
 
-### Gameplay
-- Full turn sequence: Spirit Phase, Fast Powers, Invader Phase (Ravage/Build/Explore), Slow Powers, Time Passes
-- Invader actions are fully automated (explore, build, ravage with blight cascade)
-- Board displays pieces as colored sprites with a legend
-- Scrollable event log tracks every action
-- Step through phase-by-phase, full turns, or auto-play 10 turns
+See `CLAUDE.md` for the code map and conventions.
 
-### Rules Reference
-- Full rulebook transcribed and browsable by section with tab navigation
+## TODO
 
-### Save/Load
-- Save games at any point during play (saved as JSON in `saves/`)
-- Load Game screen to browse, load, or delete saved games
-- Auto-generated filenames with spirit name, turn number, and timestamp
+Ongoing list — check items off (or delete them) as they land.
+
+**Verify**
+- [ ] Play a full solo game by hand in the browser (so far tested by engine tests and auto-played screenshots).
+- [ ] Play a full online game with 2+ real browsers/devices (the net layer passed a live Firebase test and a simulated multi-device test).
+- [ ] Decide whether to keep the official card scans in `public/cards/` on the public site (card art © Greater Than Games).
+
+**Rules gaps & judgment calls**
+- [ ] Beginner setup from the rulebook: Power Progression cards, and "no Blight Card" mode (the Invader Board then holds 5 Blight per player — confirmed from the Spirit Island TTS mod).
+- [ ] Generic "act as if you had fewer Elements" for every threshold (now only Massive Flooding and Tsunami offer it).
+- [ ] Replace: confirm whether a replaced Invader can be destroyed by the Damage it keeps (currently capped at Health − 1).
+- [ ] Corner-only adjacency where 3–4 boards meet at a point (only lands sharing a board edge are joined today).
+- [ ] Dissolve the Bonds of Kinship: enforce "as many different lands as possible" strictly.
+
+**AI**
+- [x] Heuristic AI: position evaluation + simulated card values; plays AI teammates, watch mode, and 💡 suggestions; runs in a Web Worker.
+- [x] Stronger play, round 1: every decision is scored by playing out the rest of the turn (through the Invader Phase and Time Passes, with a fast policy for the other choices); evaluation weights tuned against the benchmark; the threat forecast knows the adversaries' rules (Heavy Mining, England's Build and Capital loss, …) and Thunderspeaker's Sworn to Victory. Benchmark (`AI_BENCH=1 npx vitest run tests/engine/aiBench.test.ts`: solo, no adversary, 8 Spirits × 12 seeds on boards A–D): 26/96 → 31/96 wins. (An earlier 42/96 came from rollouts seeing the real deck order; simulations now re-deal hidden information first. Averaging two sampled futures per option didn't help: 29/96.)
+- [ ] Stronger play, round 2: Ocean's Hungry Grasp never wins (0/12) and Thunderspeaker rarely does (1/12): they need Spirit-specific plans (Ocean: drown Invaders by pushing them into the Ocean; Thunderspeaker: move Presence with the Dahan). Two-turn rollouts won no more games and were 1.6× slower. Also benchmark against the adversaries.
+- [x] AI seats in online rooms: the host adds AI players in the lobby; the host's device plays them (or the first connected player while the host is away), and only the people vote on undo.
+- [x] Neural AI groundwork (engine): `Decision.kind` / `sourceId` / `about`, `determinize()` (hidden information), `observe()` (public-information token encoding, ~80 µs per decision), quiet games (no log, ~2× faster simulation).
+- [x] Neural AI training pipeline (`training/`, see training/README.md): Node env workers + batched GPU inference, PyTorch learner (100 updates imitating the heuristic AI with DAgger, value warm-up, then PPO with a fading KL pull toward the imitation policy, potential-based shaping from `evaluate()` and a per-Spirit difficulty curriculum), fixed eval suites with a heuristic baseline.
+- [x] First full training run (5,000 updates, 9.5 h): matched the heuristic from update ~500 to 1200, then learned to stall and collapsed. See training/README.md ("First run") for the diagnosis.
+- [x] Ship a trained policy: a 0.72 MB int8 file, TypeScript forward pass (matches PyTorch to 3e-6) in the Web Worker, stall guard, 🧠 Neural / 🔍 Search toggle for solo games. Now update 15000 (training round 4): 50.9% wins on 576 test games (8 Spirits × no adversary / Sweden 2 / England 3 / Prussia 6), against the search AI's 12.5% on the 192-game suite; it replaced update 1000 (18.8% there).
+- [x] Block the loops at their source: the rules have no Cancel at Power targets, and choosing Reclaim One in the card-play menu uses it (rules version 2; ↶ Back in the app is Undo). Search AI benchmark under the new rules: 25/96 (31/96 when it could cancel).
+- [x] Training round 2, updates 1000 → 5000: eval suite 18.8% → 36.5% (best 39.1% at update 4900; heuristic 12.5%), no stuck games, no rollbacks; every Spirit improved, every Spirit left "no adversary".
+- [ ] Ship update 4900 to the app (after a larger confirming eval).
+- [ ] Training round 3, updates 5000 → 10000 (prepared): promotion only when all three adversaries pass, practice weighted toward the adversary and Spirit that lose most, full-grid evals every 500 updates against update 4900's, learning rate decaying over the last 1,500.
+- [ ] Neural AI for 2-4 Spirit tables (train with `--players`); today they use the search AI.
+
+**Content**
+- [ ] Base-game Scenarios (Blitz, Guard the Isle's Heart, Rituals of Terror, Dahan Insurrection).
+- [ ] Thematic map boards.
+- [ ] Expansions (Branch & Claw, Jagged Earth, …) — out of scope for now.
+
+**UX**
+- [x] Step-through playback of each Invader Phase (highlights lands step by step; replay with "▶ Invaders").
+- [ ] Animate pieces moving between intermediate board states during playback (the board currently shows the end state while steps highlight where things happened).
+- [x] Pinch-zoom and a small-screen layout (map on top, decisions pinned, Spirit / Invaders / Log tabs).
+- [x] Online: undo by agreement, reconnecting banner, offline markers on seats, spectator notice.
+- [x] Land shapes traced from the printed boards.
+- [x] Game history & stats (win rate, best score, per-Spirit record).
+- [x] Illustrated rules reference (worked examples rendered by the real engine).
+
+## Credits
+
+Spirit Island is designed by R. Eric Reuss and published by Greater Than Games. This is an unofficial fan project; card and rules text belong to their owners (card text transcribed via the community Spirit Island Card Katalog). Land shapes are traced from the printed boards; every land, terrain, adjacency and Setup piece matches them.
