@@ -2,7 +2,7 @@
 
 A digital table for the cooperative board game **Spirit Island** (base game): solo, hot-seat, or online with friends. Every rule is enforced and all Invader bookkeeping is automated; the game asks you whenever the rules give a choice.
 
-Play it at: **https://klui.github.io/Spirit-Island/**
+Play it at: **https://dragonkyro.github.io/Spirit-Island/**
 
 ## What's in it
 
